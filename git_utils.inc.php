@@ -25,7 +25,8 @@ function git_get_latest_commit_message($git_dir) {
 
 	$objects_dir = $git_dir . '/objects';
 
-	$pack_files = glob($objects_dir.'\pack\pack-*.pack');
+	$pack_files = glob($objects_dir.'/pack/pack-*.pack');
+	$last_exception = 'No pack files found';
 	foreach ($pack_files as $basename) {
 		$basename = substr(basename($basename),0,strlen(basename($basename))-5);
 		try {
