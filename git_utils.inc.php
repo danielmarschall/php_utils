@@ -20,7 +20,7 @@
 
 function git_get_latest_commit_message($git_dir) {
 	// First try an official git client
-	$cmd = "git --git-dir=".escapeshellarg("$git_dir")." log -1";
+	$cmd = "git --git-dir=".escapeshellarg("$git_dir")." log -1 2>&1";
 	$ec = -1;
 	$out = array();
 	@exec($cmd, $out, $ec);
