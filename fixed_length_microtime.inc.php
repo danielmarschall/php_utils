@@ -22,14 +22,14 @@ function fixed_length_microtime() {
 	// This function outputs a fixed-length microtime (can be used for sorting)
 	// Additionally, it ensures that the output is always different by waiting 1 microsecond
 
-	$ary = explode('.', microtime(true));
+	$ary = explode('.', (string)microtime(true));
 	if (!isset($ary[1])) $ary[1] = 0;
-	$ret = $ary[0].'_'.str_pad($ary[1], 4, 0, STR_PAD_RIGHT);
+	$ret = $ary[0].'_'.str_pad($ary[1], 4, '0', STR_PAD_RIGHT);
 
 	while (true) {
-		$ary = explode('.', microtime(true));
+		$ary = explode('.', (string)microtime(true));
 		if (!isset($ary[1])) $ary[1] = 0;
-		$ret2 = $ary[0].'_'.str_pad($ary[1], 4, 0, STR_PAD_RIGHT);
+		$ret2 = $ary[0].'_'.str_pad($ary[1], 4, '0', STR_PAD_RIGHT);
 		// Wait until the value changes. This ensures that the microtime will never be the same
 		// sleep(0.1) does not work for some reason.
 		if ($ret != $ret2) break;
