@@ -3,7 +3,7 @@
 /*
  * fixed_length_microtime() for PHP
  * Copyright 2022 Daniel Marschall, ViaThinkSoft
- * Version 2022-03-03
+ * Version 2022-03-08
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,21 +18,17 @@
  * limitations under the License.
  */
 
-function fixed_length_microtime() {
+function fixed_length_microtime($unique=true) {
 	// This function outputs a fixed-length microtime (can be used for sorting)
-	// Additionally, it ensures that the output is always different by waiting 1 microsecond
+	// Optionally, it ensures that the output is always different by waiting 1 microsecond
 
 	$ary = explode('.', (string)microtime(true));
 	if (!isset($ary[1])) $ary[1] = 0;
 	$ret = $ary[0].'_'.str_pad($ary[1], 4, '0', STR_PAD_RIGHT);
 
-	while (true) {
-		$ary = explode('.', (string)microtime(true));
-		if (!isset($ary[1])) $ary[1] = 0;
-		$ret2 = $ary[0].'_'.str_pad($ary[1], 4, '0', STR_PAD_RIGHT);
-		// Wait until the value changes. This ensures that the microtime will never be the same
-		// sleep(0.1) does not work for some reason.
-		if ($ret != $ret2) break;
+	if ($unique) {
+		// Make sure value changes by waiting 1 microsecond.
+		usleep(1);
 	}
 
 	return $ret;
