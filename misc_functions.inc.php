@@ -25,7 +25,7 @@ function c_literal($byte_array) {
 		if ((($c >= 0x00) && ($c <= 0x1F)) || ($c >= 0x7F)) {
 			// For non-printable characters use octal notation:
 			// \000 ... \377
-			$out .= "\\".str_pad(base_convert($c,10,8), 3, '0', STR_PAD_LEFT);
+			$out .= "\\".str_pad(base_convert(''.$c,10,8), 3, '0', STR_PAD_LEFT);
 		} else {
 			if (chr($c) == "'") $out .= '\\';
 			$out .= chr($c);
@@ -37,7 +37,7 @@ function c_literal($byte_array) {
 
 function c_literal_hexstr($hexstr) {
 	$odd_char = (strlen($hexstr)%2 != 0) ? '0x'.substr($hexstr,-1).'<<4' : '';
-	$hexstr = substr($hexstr,0,2*floor(strlen($hexstr)/2));
+	$hexstr = substr($hexstr,0,2*(int)floor(strlen($hexstr)/2));
 	if ($hexstr != '') {
 		$ary = str_split(hex2bin($hexstr));
 		foreach ($ary as &$a) $a = ord($a);
@@ -80,7 +80,7 @@ function js_escape($data) {
 function get_calling_function() {
 	$ex = new Exception();
 	$trace = $ex->getTrace();
-	if (!isset($trace[2])) return _L('(main)');
+	if (!isset($trace[2])) return '(main)';
 	$final_call = $trace[2];
 	return $final_call['file'].':'.$final_call['line'].'/'.$final_call['function'].'()';
 }
