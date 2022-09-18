@@ -24,13 +24,15 @@ include_once __DIR__ . '/misc_functions.inc.php';
 # ---
 
 /*
-#test2('A000000051AABBCC');
-#test2('B01234567890');
-#test2('D276000098AABBCCDDEEFFAABBCCDDEE');
-#test2('F01234567890');
-#test('91234FFF999');
-#test('51234FFF999');
-#test2('E828BD080F014E585031');
+#test2('A000000051AABBCC'); // International Registration
+#test2('B01234567890'); // Illegal AID (RFU)
+#test2('D276000098AABBCCDDEEFFAABBCCDDEE'); // National Registration
+#test2('F01234567890'); // Unregistered AID
+#test('91234FFF999'); // IIN based AID
+#test('51234FFF999'); // IIN based AID
+test('E828BD080F014E585031'); // ISO E8-OID 1.0.aaaa
+test('E80704007F00070304'); // BSI Illegal E8-OID-AID (with DER Length)
+test('E80704007F0007030499'); // BSI Illegal E8-OID-AID + PIX (PIX is never used by BSI; it's just for us to test)
 
 function test2($aid) {
 	while ($aid != '') {
@@ -60,125 +62,139 @@ function test($aid) {
 
 # ---
 
-function _aid_e8_interpretations($aid) {
+function _aid_e8_oid_helper($output_oid,$by,$ii,&$ret,$minmax_measure,$min,$max) {
+	if ($minmax_measure == 'ARC') {
+		if (($min!=-1) && (count($output_oid)<$min)) return true;  // continue
+		if (($max!=-1) && (count($output_oid)>$max)) return false; // stop
+	} else if ($minmax_measure == 'DER') {
+		if (($min!=-1) && ($ii+1<$min)) return true;  // continue
+		if (($max!=-1) && ($ii+1>$max)) return false; // stop
+	}
+
+	$byy = $by;
+	for ($i=0;$i<=$ii;$i++) array_shift($byy);
+
+	$is_iso_standard = (count($output_oid) >= 3) && ($output_oid[0] == '1') && ($output_oid[1] == '0');
+
+	$s_oid = implode('.',$output_oid);
+
+	if ($is_iso_standard) {
+		$std_hf = 'Standard ISO/IEC '.$output_oid[2];
+		if (isset($output_oid[3])) $std_hf .= "-".$output_oid[3];
+	} else {
+		$std_hf = "Unknown Standard"; // should not happen
+	}
+
+	$pix = implode(':',$byy);
+
+	if ($pix !== '') {
+		$ret[] = array($ii+1,"$std_hf (OID $s_oid)",$pix);
+	} else {
+		$ret[] = array($ii+1,"$std_hf (OID $s_oid)","");
+	}
+
+	return true;
+}
+
+function _aid_e8_interpretations($pure_der, $minmax_measure='ARC', $min=-1, $max=-1) {
 	$ret = array();
 
 	$output_oid = array();
 
-	$aid = strtoupper(str_replace(' ','',$aid));
-	$aid = strtoupper(str_replace(':','',$aid));
-	$by = str_split($aid,2);
-	if ((array_shift($by) == 'E8') ) {
-		// The following part is partially taken from the DER decoder/encoder by Daniel Marschall:
-		// https://github.com/danielmarschall/oidconverter/blob/master/php/OidDerConverter.class.phps
-		// (Only the DER "value" part, without "type" and "length")
+	$pure_der = strtoupper(str_replace(' ','',$pure_der));
+	$pure_der = strtoupper(str_replace(':','',$pure_der));
+	$by = str_split($pure_der,2);
 
-		$part = 2; // DER part 0 (type) and part 1 (length) not present
-		$fSub = 0; // Subtract value from next number output. Used when encoding {2 48} and up
-		$ll = gmp_init(0);
-		$arcBeginning = true;
+	// The following part is partially taken from the DER decoder/encoder by Daniel Marschall:
+	// https://github.com/danielmarschall/oidconverter/blob/master/php/OidDerConverter.class.phps
+	// (Only the DER "value" part, without "type" and "length")
 
-		foreach ($by as $ii => $pb) {
+	$part = 2; // DER part 0 (type) and part 1 (length) not present
+	$fSub = 0; // Subtract value from next number output. Used when encoding {2 48} and up
+	$ll = gmp_init(0);
+	$arcBeginning = true;
 
-			$pb = hexdec($pb);
+	foreach ($by as $ii => $pb) {
 
-			if ($part == 2) { // First two arcs
-				$first = floor($pb / 40);
-				$second = $pb % 40;
-				if ($first > 2) {
-					$first = 2;
-					$output_oid[] = $first;
-					$arcBeginning = true;
+		$pb = hexdec($pb);
 
-					if (($pb & 0x80) != 0) {
-						// 2.48 and up => 2+ octets
-						// Output in "part 3"
+		if ($part == 2) { // First two arcs
+			$first = floor($pb / 40);
+			$second = $pb % 40;
+			if ($first > 2) {
+				$first = 2;
+				$output_oid[] = $first;
+				if (!_aid_e8_oid_helper($output_oid, $by, $ii, $ret, $minmax_measure, $min, $max)) break;
+				$arcBeginning = true;
 
-						if ($pb == 0x80) {
-							throw new Exception("Encoding error. Illegal 0x80 paddings. (See Rec. ITU-T X.690, clause 8.19.2)\n");
-						} else {
-							$arcBeginning = false;
-						}
-
-						$ll = gmp_add($ll, ($pb & 0x7F));
-						$fSub = 80;
-						$fOK = false;
-					} else {
-						// 2.0 till 2.47 => 1 octet
-						$second = $pb - 80;
-						$output_oid[] = $second;
-						$arcBeginning = true;
-						$fOK = true;
-						$ll = gmp_init(0);
-					}
-				} else {
-					// 0.0 till 0.37 => 1 octet
-					// 1.0 till 1.37 => 1 octet
-					$output_oid[] = $first;
-					$output_oid[] = $second;
-					$arcBeginning = true;
-					$fOK = true;
-					$ll = gmp_init(0);
-				}
-				$part++;
-			} else { //else if ($part == 3) { // Arc three and higher
 				if (($pb & 0x80) != 0) {
-					if ($arcBeginning && ($pb == 0x80)) {
-						throw new Exception("Encoding error. Illegal 0x80 paddings. (See Rec. ITU-T X.690, clause 8.19.2)");
+					// 2.48 and up => 2+ octets
+					// Output in "part 3"
+
+					if ($pb == 0x80) {
+						throw new Exception("Encoding error. Illegal 0x80 paddings. (See Rec. ITU-T X.690, clause 8.19.2)\n");
 					} else {
 						$arcBeginning = false;
 					}
 
-					$ll = gmp_mul($ll, 0x80);
 					$ll = gmp_add($ll, ($pb & 0x7F));
+					$fSub = 80;
 					$fOK = false;
 				} else {
-					$fOK = true;
-					$ll = gmp_mul($ll, 0x80);
-					$ll = gmp_add($ll, $pb);
-					$ll = gmp_sub($ll, $fSub);
-					$output_oid[] = gmp_strval($ll, 10);
-
-					$is_iso_standard = ($output_oid[0] == '1') && ($output_oid[1] == '0');
-
-					$byy = $by;
-					for ($i=0;$i<=$ii;$i++) array_shift($byy);
-
-					$s_oid = implode('.',$output_oid);
-
-					if ($is_iso_standard) {
-						$std_hf = 'Standard ISO/IEC '.$output_oid[2];
-						if (isset($output_oid[3])) $std_hf .= "-".$output_oid[3];
-					} else {
-						$std_hf = "Unknown Standard"; // should not happen
-					}
-
-					$pix = implode(':',$byy);
-
-					if ($pix !== '') {
-						$ret[] = array($ii+1,"$std_hf (OID $s_oid)",$pix);
-					} else {
-						$ret[] = array($ii+1,"$std_hf (OID $s_oid)","");
-					}
-
-					// ISO Standards (OID 1.0) will only have 1 or 2 numbers. (Number 1 is the standard, and number 2
-					// is the part in case of a multi-part standard).
-					if ($is_iso_standard && (count($output_oid) == 4)) break;
-
-					// Happens only if 0x80 paddings are allowed
-					// $fOK = gmp_cmp($ll, 0) >= 0;
-					$ll = gmp_init(0);
-					$fSub = 0;
+					// 2.0 till 2.47 => 1 octet
+					$second = $pb - 80;
+					$output_oid[] = $second;
+					if (!_aid_e8_oid_helper($output_oid, $by, $ii, $ret, $minmax_measure, $min, $max)) break;
 					$arcBeginning = true;
+					$fOK = true;
+					$ll = gmp_init(0);
 				}
+			} else {
+				// 0.0 till 0.37 => 1 octet
+				// 1.0 till 1.37 => 1 octet
+				$output_oid[] = $first;
+				$output_oid[] = $second;
+				if (!_aid_e8_oid_helper($output_oid, $by, $ii, $ret, $minmax_measure, $min, $max)) break;
+				$arcBeginning = true;
+				$fOK = true;
+				$ll = gmp_init(0);
+			}
+			$part++;
+		} else { //else if ($part == 3) { // Arc three and higher
+			if (($pb & 0x80) != 0) {
+				if ($arcBeginning && ($pb == 0x80)) {
+					throw new Exception("Encoding error. Illegal 0x80 paddings. (See Rec. ITU-T X.690, clause 8.19.2)");
+				} else {
+					$arcBeginning = false;
+				}
+
+				$ll = gmp_mul($ll, 0x80);
+				$ll = gmp_add($ll, ($pb & 0x7F));
+				$fOK = false;
+			} else {
+				$fOK = true;
+				$ll = gmp_mul($ll, 0x80);
+				$ll = gmp_add($ll, $pb);
+				$ll = gmp_sub($ll, $fSub);
+				$output_oid[] = gmp_strval($ll, 10);
+
+				if (!_aid_e8_oid_helper($output_oid, $by, $ii, $ret, $minmax_measure, $min, $max)) break;
+
+				// Happens only if 0x80 paddings are allowed
+				// $fOK = gmp_cmp($ll, 0) >= 0;
+				$ll = gmp_init(0);
+				$fSub = 0;
+				$arcBeginning = true;
 			}
 		}
 	}
+
 	return $ret;
 }
 
 function decode_aid($aid,$compact=true) {
 	$sout = '';
+	if (strtolower(substr($aid,0,2)) == '0x') $aid = substr($aid,2);
 	$out = _decode_aid($aid);
 	if ($compact) {
 		$max_key_len = 0;
@@ -207,7 +223,7 @@ function _is_bcd($num) {
 function _decode_aid($aid) {
 
 	// based on https://github.com/thephpleague/iso3166/blob/main/src/ISO3166.php
-	// commit 26.07.2022
+	// commit 26 July 2022
 	// Generated using:
 	/*
 	$x = new ISO3166();
@@ -692,16 +708,56 @@ function _decode_aid($aid) {
 		if ($std_schema == '8') {
 			$out[] = array(" $std_schema", "Standard identified by OID");
 
-			$data = substr($aid,2);
+			// Including the DER Encoding "Length" is not defined by ISO but used illegally
+			// by German BSI (beside the fact that ISO never allowed anyone else to use E8-AIDs outside
+			// of OID arc 1.0),
+			// e.g. 0xE80704007F00070302 defined by "BSI TR-03110" was intended to represent 0.4.0.127.0.7.3.2
+			//                           "more correct" would have been 0xE804007F00070302
+			//      0xE80704007F00070304 defined by "BSI TR-03109-2" was intended to represent 0.4.0.127.0.7.3.4
+			//                           "more correct" would have been 0xE804007F00070304
+			$include_der_length_roots = array(
+				'04007F0007' /* bsi-de (0.4.0.127.0.7) */
+			);
+			$include_der_length = false;
+			foreach ($include_der_length_roots as $include_der_length_root) {
+				$der_length_hex = null;
+				$der_length_dec = null;
+				if (substr($aid,4,strlen($include_der_length_root)) == $include_der_length_root) {
+					$der_length_hex = substr($aid,2,2);
+					$der_length_dec = hexdec($der_length_hex);
+					if ($der_length_dec <= 14) {
+						$include_der_length = true;
+						break;
+					}
+				}
+			}
+			if ($include_der_length) {
+				$out[] = array("  $der_length_hex", "DER encoding length (illegal usage not defined by ISO)");
+				$pure_der = substr($aid,4);
+				$indent = 4;
+				$e8_minmax_measure = 'DER';
+				$e8_min = $der_length_dec;
+				$e8_max = $der_length_dec;
+			} else {
+				$pure_der = substr($aid,2);
+				$indent = 2;
+				// ISO Standards (OID 1.0) will only have 1 or 2 numbers. (Number 1 is the standard, and number 2
+				// is the part in case of a multi-part standard).
+				$e8_minmax_measure = 'ARC';
+				$e8_min = 3; // 1.0.aaaa   (ISO AAAA)
+				$e8_max = 4; // 1.0.aaaa.b (ISO AAAA-B)
+			}
+			// --- End of BSI compatibility hack ---
+
 			try {
-				$interpretations = _aid_e8_interpretations($aid);
+				$interpretations = _aid_e8_interpretations($pure_der,$e8_minmax_measure,$e8_min,$e8_max);
 				foreach ($interpretations as $ii => $interpretation) {
 					$pos = $interpretation[0];
 					$txt1 = $interpretation[1]; // Standard
 					$txt2 = $interpretation[2]; // PIX (optional)
 
-					$aid1 = '  '.substr($aid,2,$pos*2);
-					$aid2 = substr($aid,2+$pos*2);
+					$aid1 = str_repeat(' ',$indent).substr($pure_der,0,$pos*2);
+					$aid2 = substr($pure_der,$pos*2);
 
 					$out[] = array("$aid1", "$txt1");
 					if ($txt2 !== '') {
@@ -713,8 +769,7 @@ function _decode_aid($aid) {
 					}
 				}
 			} catch (Exception $e) {
-				$out[] = array("  $data", "ERROR: ".$e->getMessage());
-
+				$out[] = array(str_repeat(' ',$indent).$pure_der, "ERROR: ".$e->getMessage());
 			}
 		} else if ($std_schema != '') {
 			// E0..E7, E9..EF are RFU
