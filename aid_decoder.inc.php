@@ -258,7 +258,7 @@ function _aid_e8_length_usage($aid) {
 	//                                "more correct" would have been AID E804007F00070302
 	//         AID E80704007F00070304 defined by "BSI TR-03109-2" was intended to represent 0.4.0.127.0.7.3.4
 	//                                "more correct" would have been AID E804007F00070304
-	if (substr($rest,0,10) == '04007F0007'/*0.4.0.127.0.7*/) $is_e8_len_oid = true;
+	if (substr($rest,0,10) == '04007F0007'/*0.4.0.127.0.7*/) $is_e8_len_oid = $len <= 14;
 
 	// Now conclude
 	if (!$is_e8_oid &&  $is_e8_len_oid) return true/*E8+Length+OID*/;
