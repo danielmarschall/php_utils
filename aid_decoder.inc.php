@@ -3,7 +3,7 @@
 /*
  * ISO/IEC 7816-5 Application Identifier decoder for PHP
  * Copyright 2022 Daniel Marschall, ViaThinkSoft
- * Version 2022-09-12
+ * Version 2022-09-18
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
  * limitations under the License.
  */
 
+include_once __DIR__ . '/gmp_supplement.inc.php';
 include_once __DIR__ . '/misc_functions.inc.php';
 
 # ---
@@ -82,7 +83,7 @@ function _aid_e8_interpretations($aid) {
 			$pb = hexdec($pb);
 
 			if ($part == 2) { // First two arcs
-				$first = $pb / 40;
+				$first = floor($pb / 40);
 				$second = $pb % 40;
 				if ($first > 2) {
 					$first = 2;
