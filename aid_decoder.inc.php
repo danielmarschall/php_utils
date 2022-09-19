@@ -1,9 +1,9 @@
 <?php
 
 /*
- * ISO/IEC 7816-5 Application Identifier decoder for PHP
+ * ISO/IEC 7816 Application Identifier decoder for PHP
  * Copyright 2022 Daniel Marschall, ViaThinkSoft
- * Version 2022-09-18
+ * Version 2022-09-19
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -556,12 +556,7 @@ function _decode_aid($aid) {
 	$iso3166['894'] = "Zambia";
 	$iso3166['716'] = "Zimbabwe";
 
-	// ISO/IEC 7816-5 AID decoder
-
 	$out = array();
-
-	// A very good source about the coding
-	// https://blog.actorsfit.com/a?ID=00250-166ef507-edff-4400-8d0e-9e85d6ae2310
 
 	$aid = strtoupper($aid);
 	$aid = trim($aid);
@@ -581,16 +576,24 @@ function _decode_aid($aid) {
 	$aid_hf = implode(':',str_split($aid,2));
 	if (strlen($aid)%2 == 1) $aid_hf .= '_';
 
-	$out[] = array("$aid", "ISO/IEC 7816-5 Application Identifier (AID)");
+	$out[] = array("$aid", "ISO/IEC 7816 Application Identifier (AID)");
 	$out[] = array('', "> $aid_hf <");
 	$out[] = array('', c_literal_hexstr($aid));
 
 	if ((strlen($aid) == 32) && (substr($aid,-2) == 'FF')) {
-		// https://www.kartenbezogene-identifier.de/content/dam/kartenbezogene_identifier/de/PDFs/RID_Antrag_2006.pdf
-		// writes: "Wenn die PIX aus 11 Bytes besteht, muss das letzte Byte einen Hexadezimal-Wert ungleich ´FF´ aufweisen (´FF´ ist von ISO reserviert)."
-		// https://www.etsi.org/deliver/etsi_ts/101200_101299/101220/07.03.00_60/ts_101220v070300p.pdf
-		// writes: According to ISO/IEC 7816-4, if the AID is 16 bytes long, then the value 'FF' for the least significant byte [...] is reserved for future use.
-		$out[] = array('',"INVALID: A 16-byte AID must not end with FF. (Reserved by ISO/IEC 7816-4)");
+		// Sometimes you read that a 16-byte AID must not end with FF, because it is reserved by ISO.
+		// I have only found one official source:
+		// ISO/IEC 7816-5 : 1994 (E)
+		//        Identification cards - Integrated circuit(s) cards with contacts -
+		//        Part 5 : Numbering system and registration procedure for application identifiers
+		//        https://cdn.standards.iteh.ai/samples/19980/8ff6c7ccc9254fe4b7a8a21c0bf59424/ISO-IEC-7816-5-1994.pdf
+		// Quote from clause 5.2:
+		//        "The PIX has a free coding. If the AID is 16 bytes long,
+		//         then the value 'FF' for the least significant byte is reserved for future use."
+		// In the revisions of ISO/IEC 7816, parts of ISO 7816-5 (e.g. the AID categories)
+		// have been moved to ISO 7816-4.
+		// The "FF" reservation cannot be found in modern versions of 7816-4 or 7816-5.
+		$out[] = array('',"INVALID: A 16-byte AID must not end with FF. (Reserved by ISO/IEC)");
 	}
 
 	if (strlen($aid) > 32) {
