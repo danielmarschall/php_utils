@@ -18,6 +18,12 @@
  * limitations under the License.
  */
 
+// Definition of Application Identifiers (AID):
+// - ISO 7816-05:1994 (1st ed.), clause 5.2
+// - ISO 7816-04:2005 (2nd ed.), clause 8.2.1.2, Annex A.1, Annex D
+// - ISO 7816-04:2013 (3rd ed.), clause 12.2.3, Annex A.1, Annex D
+// - ISO 7816-04:2020 (4th ed.), clause 12.3.4, Annex A.1, Annex D
+
 include_once __DIR__ . '/gmp_supplement.inc.php';
 include_once __DIR__ . '/misc_functions.inc.php';
 
@@ -813,7 +819,7 @@ function _decode_aid($aid) {
 					$e8_min = 3; // 1.0.aaaa   (ISO AAAA)
 					$e8_max = 4; // 1.0.aaaa.b (ISO AAAA-B)
 				} else {
-					// This is the inofficial usage of E8+OID
+					// This is the inofficial usage of E8+OID, i.e. using an OID outside of arc 1.0
 					$e8_minmax_measure = 'ARC';
 					$e8_min = 2;  // At least 2 arcs (OID x.y)
 					$e8_max = -1; // no limit
