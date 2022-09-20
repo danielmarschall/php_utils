@@ -3,7 +3,7 @@
 /*
  * ISO/IEC 7816 Application Identifier decoder for PHP
  * Copyright 2022 Daniel Marschall, ViaThinkSoft
- * Version 2022-09-19
+ * Version 2022-09-20
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -583,17 +583,18 @@ function _decode_aid($aid) {
 	if ((strlen($aid) == 32) && (substr($aid,-2) == 'FF')) {
 		// Sometimes you read that a 16-byte AID must not end with FF, because it is reserved by ISO.
 		// I have only found one official source:
-		// ISO/IEC 7816-5 : 1994 (E)
+		// ISO/IEC 7816-5 : 1994
 		//        Identification cards - Integrated circuit(s) cards with contacts -
 		//        Part 5 : Numbering system and registration procedure for application identifiers
 		//        https://cdn.standards.iteh.ai/samples/19980/8ff6c7ccc9254fe4b7a8a21c0bf59424/ISO-IEC-7816-5-1994.pdf
 		// Quote from clause 5.2:
-		//        "The PIX has a free coding. If the AID is 16 bytes long,
-		//         then the value 'FF' for the least significant byte is reserved for future use."
+		//       "The PIX has a free coding. If the AID is 16 bytes long,
+		//        then the value 'FF' for the least significant byte is reserved for future use."
 		// In the revisions of ISO/IEC 7816, parts of ISO 7816-5 (e.g. the AID categories)
 		// have been moved to ISO 7816-4.
 		// The "FF" reservation cannot be found in modern versions of 7816-4 or 7816-5.
-		$out[] = array('',"INVALID: A 16-byte AID must not end with FF. (Reserved by ISO/IEC)");
+		/*$out[] = array('',"INVALID: A 16-byte AID must not end with FF. (Reserved by ISO/IEC)");*/
+		$out[] = array('',"Note: A 16-byte AID ending with FF was reserved by ISO/IEC 7816-5:1994");
 	}
 
 	if (strlen($aid) > 32) {
@@ -642,7 +643,7 @@ function _decode_aid($aid) {
 				$out[] = array('',"Warning: IIN has an unusual length. 6 or 8 digits are expected!");
 			}
 
-			$out[] = array($category, "IIN Category $category = $check_cat_name");
+			$out[] = array($category, "Major industry identifier $category = $check_cat_name");
 			$pad .= str_repeat(' ', strlen("$category"));
 
 			if ("$category" === "9") {
