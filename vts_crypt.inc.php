@@ -175,7 +175,7 @@ function vts_crypt_hash($algo, $str_password, $str_salt, $ver='1', $mode='ps', $
 		} else if ($mode == 'pbkdf2') {
 			if (!hash_pbkdf2_supported_natively($algo) && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash_pbkdf2')) {
 				if ($iterations == 0) {
-					$iterations = 2000; // because userland implementations are much slower, we must choose a small value...
+					$iterations = 100; // because the userland implementation is EXTREMELY slow, we must choose a small value, sorry...
 				}
 				$bits = explode('-',$algo)[1];
 				$bin_hash = \bb\Sha3\Sha3::hash_pbkdf2($str_password, $str_salt, $iterations, $bits, 0, true);
