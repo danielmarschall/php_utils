@@ -48,7 +48,7 @@ Valid <mode> :
 	ps = password + salt
 	sps = salt + password + salt
 	hmac = HMAC (salt is the key)
-	pbkdf2 = PBKDF2 (Additional param i= contains the number of iterations)
+	pbkdf2 = PBKDF2-HMAC (Additional param i= contains the number of iterations)
 Like most Crypt-hashes, <salt> and <hash> are Radix64 coded
 with alphabet './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz' and no padding.
 Link to the online specification:
@@ -182,19 +182,18 @@ function vts_crypt_hash($algo, $str_password, $str_salt, $ver='1', $mode='ps', $
 			} else {
 				if ($iterations == 0) {
 					// Recommendations taken from https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2
-					// I am not sure if these recommendations are correct. They write PBKDF2-HMAC-SHA1...
-					// Does this count for us, or does hash_pbkdf2() implement PBKDF2-SHA1 rather than PBKDF2-HMAC-SHA1?
+					// Note that hash_pbkdf2() implements PBKDF2-HMAC-*
 					if      ($algo == 'sha3-512')    $iterations =  100000;
 					else if ($algo == 'sha3-384')    $iterations =  100000;
 					else if ($algo == 'sha3-256')    $iterations =  100000;
 					else if ($algo == 'sha3-224')    $iterations =  100000;
-					else if ($algo == 'sha512')      $iterations =  210000; // value by owasp.org cheatcheat (28.02.2023)
-					else if ($algo == 'sha512/256')  $iterations =  210000; // value by owasp.org cheatcheat (28.02.2023)
-					else if ($algo == 'sha512/224')  $iterations =  210000; // value by owasp.org cheatcheat (28.02.2023)
+					else if ($algo == 'sha512')      $iterations =  210000; // value by owasp.org cheatcheat (28 February 2023)
+					else if ($algo == 'sha512/256')  $iterations =  210000; // value by owasp.org cheatcheat (28 February 2023)
+					else if ($algo == 'sha512/224')  $iterations =  210000; // value by owasp.org cheatcheat (28 February 2023)
 					else if ($algo == 'sha384')      $iterations =  600000;
-					else if ($algo == 'sha256')      $iterations =  600000; // value by owasp.org cheatcheat (28.02.2023)
+					else if ($algo == 'sha256')      $iterations =  600000; // value by owasp.org cheatcheat (28 February 2023)
 					else if ($algo == 'sha224')      $iterations =  600000;
-					else if ($algo == 'sha1')        $iterations = 1300000; // value by owasp.org cheatcheat (28.02.2023)
+					else if ($algo == 'sha1')        $iterations = 1300000; // value by owasp.org cheatcheat (28 February 2023)
 					else if ($algo == 'md5')         $iterations = 5000000;
 					else                             $iterations =    5000;
 				}
