@@ -144,24 +144,27 @@ function vts_crypt_hash($algo, $str_password, $str_salt, $ver='1', $mode='ps', $
 		if ($mode == 'sp') {
 			$payload = $str_salt.$str_password;
 			$algo_supported_natively = in_array($algo, hash_algos());
-			if (!$algo_supported_natively && ($algo === 'sha3-512') && function_exists('sha3_512')) {
-				$bin_hash = sha3_512($payload, true);
+			if (!$algo_supported_natively && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash')) {
+				$bits = explode('-',$algo)[1];
+				$bin_hash = \bb\Sha3\Sha3::hash($payload, $bits, true);
 			} else {
 				$bin_hash = hash($algo, $payload, true);
 			}
 		} else if ($mode == 'ps') {
 			$payload = $str_password.$str_salt;
 			$algo_supported_natively = in_array($algo, hash_algos());
-			if (!$algo_supported_natively && ($algo === 'sha3-512') && function_exists('sha3_512')) {
-				$bin_hash = sha3_512($payload, true);
+			if (!$algo_supported_natively && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash')) {
+				$bits = explode('-',$algo)[1];
+				$bin_hash = \bb\Sha3\Sha3::hash($payload, $bits, true);
 			} else {
 				$bin_hash = hash($algo, $payload, true);
 			}
 		} else if ($mode == 'sps') {
 			$payload = $str_salt.$str_password.$str_salt;
 			$algo_supported_natively = in_array($algo, hash_algos());
-			if (!$algo_supported_natively && ($algo === 'sha3-512') && function_exists('sha3_512')) {
-				$bin_hash = sha3_512($payload, true);
+			if (!$algo_supported_natively && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash')) {
+				$bits = explode('-',$algo)[1];
+				$bin_hash = \bb\Sha3\Sha3::hash($payload, $bits, true);
 			} else {
 				$bin_hash = hash($algo, $payload, true);
 			}
@@ -171,20 +174,39 @@ function vts_crypt_hash($algo, $str_password, $str_salt, $ver='1', $mode='ps', $
 			} else {
 				$algo_supported_natively = in_array($algo, hash_algos());
 			}
-			if (!$algo_supported_natively && ($algo === 'sha3-512') && function_exists('sha3_512_hmac')) {
-				$bin_hash = sha3_512_hmac($str_password, $str_salt, true);
+			if (!$algo_supported_natively && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash_hmac')) {
+				$bits = explode('-',$algo)[1];
+				$bin_hash = \bb\Sha3\Sha3::hash_hmac($str_password, $str_salt, $bits, true);
 			} else {
 				$bin_hash = hash_hmac($algo, $str_password, $str_salt, true);
 			}
 		} else if ($mode == 'pbkdf2') {
-			if ($iterations == 0) {
-				// TODO: Find good value for iterations, see https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2
-				$iterations = 500000;
-			}
 			$algo_supported_natively = in_array($algo, hash_algos());
-			if (!$algo_supported_natively && ($algo === 'sha3-512') && function_exists('sha3_512_pbkdf2')) {
-				$bin_hash = sha3_512_pbkdf2($str_password, $str_salt, $iterations, 0, true);
+			if (!$algo_supported_natively && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash_pbkdf2')) {
+				if ($iterations == 0) {
+					$iterations = 2000; // because userland implementations are much slower, we must choose a small value...
+				}
+				$bits = explode('-',$algo)[1];
+				$bin_hash = \bb\Sha3\Sha3::hash_pbkdf2($str_password, $str_salt, $iterations, $bits, 0, true);
 			} else {
+				if ($iterations == 0) {
+					// Recommendations taken from https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2
+					// I am not sure if these recommendations are correct. They write PBKDF2-HMAC-SHA1...
+					// Does this count for us, or does hash_pbkdf2() implement PBKDF2-SHA1 rather than PBKDF2-HMAC-SHA1?
+					if      ($algo == 'sha3-512')    $iterations =  100000;
+					else if ($algo == 'sha3-384')    $iterations =  100000;
+					else if ($algo == 'sha3-256')    $iterations =  100000;
+					else if ($algo == 'sha3-224')    $iterations =  100000;
+					else if ($algo == 'sha512')      $iterations =  210000; // value by owasp.org cheatcheat (28.02.2023)
+					else if ($algo == 'sha512/256')  $iterations =  210000; // value by owasp.org cheatcheat (28.02.2023)
+					else if ($algo == 'sha512/224')  $iterations =  210000; // value by owasp.org cheatcheat (28.02.2023)
+					else if ($algo == 'sha384')      $iterations =  600000;
+					else if ($algo == 'sha256')      $iterations =  600000; // value by owasp.org cheatcheat (28.02.2023)
+					else if ($algo == 'sha224')      $iterations =  600000;
+					else if ($algo == 'sha1')        $iterations = 1300000; // value by owasp.org cheatcheat (28.02.2023)
+					else if ($algo == 'md5')         $iterations = 5000000;
+					else                             $iterations =    5000;
+				}
 				$bin_hash = hash_pbkdf2($algo, $str_password, $str_salt, $iterations, 0, true);
 			}
 		} else {
@@ -218,8 +240,12 @@ function vts_crypt_verify($password, $hash): bool {
 		if (!isset($params['m'])) throw new Exception('Param "m" (mode) missing');
 		$mode = $params['m'];
 
-		if (($mode == 'pbkdf2') && !isset($params['i'])) throw new Exception('Param "i" (iterations) missing');
-		$iterations = $params['i'];
+		if ($mode == 'pbkdf2') {
+			if (!isset($params['i'])) throw new Exception('Param "i" (iterations) missing');
+			$iterations = $params['i'];
+		} else {
+			$iterations = 0;
+		}
 
 		// Create a VTS MCF 1.0 hash based on the parameters of $hash and the password $password
 		$calc_authkey_1 = vts_crypt_hash($algo, $password, $bin_salt, $ver, $mode, $iterations);
