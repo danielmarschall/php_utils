@@ -3,7 +3,7 @@
 /*
  * ViaThinkSoft Modular Crypt Format 1.0 and vts_password_*() functions
  * Copyright 2023 Daniel Marschall, ViaThinkSoft
- * Revision 2023-03-02
+ * Revision 2023-03-03
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -144,7 +144,10 @@ function crypt_modular_format_decode($mcf) {
 	$dummy = array_shift($ary);
 	$bin_hash = crypt_radix64_decode($dummy);
 
-	return array('id' => $id, 'salt' => $bin_salt, 'hash' => $bin_hash, 'params' => $params);
+	return array('id'     => $id,
+	             'salt'   => $bin_salt,
+	             'hash'   => $bin_hash,
+	             'params' => $params);
 }
 
 // --- Part 2: ViaThinkSoft Modular Crypt Format 1.0
@@ -157,74 +160,21 @@ function vts_crypt_version($hash) {
 	}
 }
 
-function _default_iterations($algo, $userland) {
-	if ($userland) {
-		return 100; // because the userland implementation is EXTREMELY slow, we must choose a small value, sorry...
-	} else {
-		// Recommendations taken from https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2
-		// Note that hash_pbkdf2() implements PBKDF2-HMAC-*
-		if      ($algo == 'sha3-512')    return  100000;
-		else if ($algo == 'sha3-384')    return  100000;
-		else if ($algo == 'sha3-256')    return  100000;
-		else if ($algo == 'sha3-224')    return  100000;
-		else if ($algo == 'sha512')      return  210000; // value by owasp.org cheatcheat (28 February 2023)
-		else if ($algo == 'sha512/256')  return  210000; // value by owasp.org cheatcheat (28 February 2023)
-		else if ($algo == 'sha512/224')  return  210000; // value by owasp.org cheatcheat (28 February 2023)
-		else if ($algo == 'sha384')      return  600000;
-		else if ($algo == 'sha256')      return  600000; // value by owasp.org cheatcheat (28 February 2023)
-		else if ($algo == 'sha224')      return  600000;
-		else if ($algo == 'sha1')        return 1300000; // value by owasp.org cheatcheat (28 February 2023)
-		else if ($algo == 'md5')         return 5000000;
-		else                             return    5000;
-	}
-}
-
 function vts_crypt_hash($algo, $str_password, $str_salt, $ver='1', $mode=PASSWORD_VTS_MCF1_DEFAULT_MODE, $iterations=PASSWORD_VTS_MCF1_DEFAULT_ITERATIONS) {
 	if ($ver == '1') {
 		if ($mode == PASSWORD_VTS_MCF1_MODE_SP) {
 			$payload = $str_salt.$str_password;
-			if (!hash_supported_natively($algo) && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash')) {
-				$bits = explode('-',$algo)[1];
-				$bin_hash = \bb\Sha3\Sha3::hash($payload, $bits, true);
-			} else {
-				$bin_hash = hash($algo, $payload, true);
-			}
+			$bin_hash = hash_ex($algo, $payload, true);
 		} else if ($mode == PASSWORD_VTS_MCF1_MODE_PS) {
 			$payload = $str_password.$str_salt;
-			if (!hash_supported_natively($algo) && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash')) {
-				$bits = explode('-',$algo)[1];
-				$bin_hash = \bb\Sha3\Sha3::hash($payload, $bits, true);
-			} else {
-				$bin_hash = hash($algo, $payload, true);
-			}
+			$bin_hash = hash_ex($algo, $payload, true);
 		} else if ($mode == PASSWORD_VTS_MCF1_MODE_SPS) {
 			$payload = $str_salt.$str_password.$str_salt;
-			if (!hash_supported_natively($algo) && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash')) {
-				$bits = explode('-',$algo)[1];
-				$bin_hash = \bb\Sha3\Sha3::hash($payload, $bits, true);
-			} else {
-				$bin_hash = hash($algo, $payload, true);
-			}
+			$bin_hash = hash_ex($algo, $payload, true);
 		} else if ($mode == PASSWORD_VTS_MCF1_MODE_HMAC) {
-			if (!hash_hmac_supported_natively($algo) && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash_hmac')) {
-				$bits = explode('-',$algo)[1];
-				$bin_hash = \bb\Sha3\Sha3::hash_hmac($str_password, $str_salt, $bits, true);
-			} else {
-				$bin_hash = hash_hmac($algo, $str_password, $str_salt, true);
-			}
+			$bin_hash = hash_hmac_ex($algo, $str_password, $str_salt, true);
 		} else if ($mode == PASSWORD_VTS_MCF1_MODE_PBKDF2) {
-			if (!hash_pbkdf2_supported_natively($algo) && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash_pbkdf2')) {
-				if ($iterations == 0/*default*/) {
-					$iterations = _default_iterations($algo, true);
-				}
-				$bits = explode('-',$algo)[1];
-				$bin_hash = \bb\Sha3\Sha3::hash_pbkdf2($str_password, $str_salt, $iterations, $bits, 0, true);
-			} else {
-				if ($iterations == 0/*default*/) {
-					$iterations = _default_iterations($algo, false);
-				}
-				$bin_hash = hash_pbkdf2($algo, $str_password, $str_salt, $iterations, 0, true);
-			}
+			$bin_hash = hash_pbkdf2_ex($algo, $str_password, $str_salt, $iterations, 0, true);
 		} else {
 			throw new Exception("Invalid VTS crypt version 1 mode. Expect sp, ps, sps, hmac, or pbkdf2.");
 		}
@@ -480,10 +430,10 @@ function vts_password_needs_rehash($hash, $algo, $options=array()) {
 		}
 
 		// iterations=0 means: Default, depending on the algo
-		if (($options2['mode'] == PASSWORD_VTS_MCF1_MODE_PBKDF2) && ($options['iterations'] == 0/*default*/)) {
+		if (($options['iterations'] == 0/*default*/) && ($options2['mode'] == PASSWORD_VTS_MCF1_MODE_PBKDF2)) {
 			$algo = $options2['algo'];
 			$userland = !hash_pbkdf2_supported_natively($algo) && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash_pbkdf2');
-			$options['iterations'] = _default_iterations($algo, $userland);
+			$options['iterations'] = _vts_password_default_iterations($algo, $userland);
 		}
 	}
 
@@ -510,7 +460,45 @@ function vts_password_verify($password, $hash): bool {
 	}
 }
 
-// --- Part 4: Useful functions required by the crypt-functions
+// --- Part 4: Functions which include a fallback to a pure-PHP sha3 implementation (requires https://github.com/danielmarschall/php-sha3 )
+
+function hash_ex($algo, $data, $binary=false, $options=array()) {
+	if (!hash_supported_natively($algo) && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash')) {
+		$bits = explode('-',$algo)[1];
+		$hash = \bb\Sha3\Sha3::hash($data, $bits, $binary);
+	} else {
+		$hash = hash($algo, $data, $binary);
+	}
+	return $hash;
+}
+
+function hash_hmac_ex($algo, $data, $key, $binary=false) {
+	if (!hash_hmac_supported_natively($algo) && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash_hmac')) {
+		$bits = explode('-',$algo)[1];
+		$hash = \bb\Sha3\Sha3::hash_hmac($data, $key, $bits, $binary);
+	} else {
+		$hash = hash_hmac($algo, $data, $key, $binary);
+	}
+	return $hash;
+}
+
+function hash_pbkdf2_ex($algo, $password, $salt, &$iterations=0, $length=0, $binary=false) {
+	if (!hash_pbkdf2_supported_natively($algo) && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash_pbkdf2')) {
+		if ($iterations == 0/*default*/) {
+			$iterations = _vts_password_default_iterations($algo, true);
+		}
+		$bits = explode('-',$algo)[1];
+		$hash = \bb\Sha3\Sha3::hash_pbkdf2($password, $salt, $iterations, $bits, $length, $binary);
+	} else {
+		if ($iterations == 0/*default*/) {
+			$iterations = _vts_password_default_iterations($algo, false);
+		}
+		$hash = hash_pbkdf2($algo, $password, $salt, $iterations, $length, $binary);
+	}
+	return $hash;
+}
+
+// --- Part 5: Useful functions required by the crypt-functions
 
 define('BASE64_RFC4648_ALPHABET', '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+/');
 define('BASE64_CRYPT_ALPHABET',   './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz');
@@ -625,9 +613,30 @@ function vts_password_fill_default_options($algo, $options) {
 	return $options;
 }
 
-// --- Part 5: Selftest
+function _vts_password_default_iterations($algo, $userland) {
+	if ($userland) {
+		return 100; // because the userland implementation is EXTREMELY slow, we must choose a small value, sorry...
+	} else {
+		// Recommendations taken from https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2
+		// Note that hash_pbkdf2() implements PBKDF2-HMAC-*
+		if      ($algo == 'sha3-512')    return  100000;
+		else if ($algo == 'sha3-384')    return  100000;
+		else if ($algo == 'sha3-256')    return  100000;
+		else if ($algo == 'sha3-224')    return  100000;
+		else if ($algo == 'sha512')      return  210000; // value by owasp.org cheatcheat (28 February 2023)
+		else if ($algo == 'sha512/256')  return  210000; // value by owasp.org cheatcheat (28 February 2023)
+		else if ($algo == 'sha512/224')  return  210000; // value by owasp.org cheatcheat (28 February 2023)
+		else if ($algo == 'sha384')      return  600000;
+		else if ($algo == 'sha256')      return  600000; // value by owasp.org cheatcheat (28 February 2023)
+		else if ($algo == 'sha224')      return  600000;
+		else if ($algo == 'sha1')        return 1300000; // value by owasp.org cheatcheat (28 February 2023)
+		else if ($algo == 'md5')         return 5000000;
+		else                             return    5000;
+	}
+}
 
-/*
+// --- Part 6: Selftest
+
 for ($i=0; $i<9999; $i++) {
 	assert($i===base64_int_decode(base64_int_encode($i,4)));
 }
@@ -682,4 +691,3 @@ assert(true===vts_password_needs_rehash($dummy,PASSWORD_VTS_MCF1,array(
 )));
 
 echo "OK, password $password\n";
-*/
