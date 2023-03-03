@@ -29,7 +29,7 @@ The function vts_password_verify() replaces password_verify().
 ViaThinkSoft Modular Crypt Format 1.0 performs a simple hash or HMAC operation.
 No key derivation function or iterations are performed.
 Format:
-	$1.3.6.1.4.1.37476.3.0.1.1$a=<algo>,m=<mode>$<salt>$<hash>
+	$1.3.6.1.4.1.37476.3.0.1.1$a=<algo>,m=<mode>[,i=<iterations>]$<salt>$<hash>
 where <algo> is any valid hash algorithm (name scheme of PHP hash_algos() preferred), e.g.
 	sha3-512
 	sha3-384
@@ -53,6 +53,7 @@ Valid <mode> :
 	sps = salt + password + salt
 	hmac = HMAC (salt is the key)
 	pbkdf2 = PBKDF2-HMAC (Additional param i= contains the number of iterations)
+<iterations> can be omitted if 0. It is required for mode=pbkdf2. For sp/ps/sps/hmac, it is optional.
 Like most Crypt-hashes, <salt> and <hash> are Radix64 coded
 with alphabet './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz' and no padding.
 Link to the online specification:
@@ -92,7 +93,7 @@ define('PASSWORD_SHA256_DEFAULT_ROUNDS',        5000);
 define('PASSWORD_SHA512_DEFAULT_ROUNDS',        5000);
 define('PASSWORD_VTS_MCF1_DEFAULT_ALGO',        'sha3-512'); // any value in hash_algos(), NOT vts_hash_algos()
 define('PASSWORD_VTS_MCF1_DEFAULT_MODE',        PASSWORD_VTS_MCF1_MODE_PS);
-define('PASSWORD_VTS_MCF1_DEFAULT_ITERATIONS',  0); // only for mode=pbkdf2. 0=Default, depending on algo
+define('PASSWORD_VTS_MCF1_DEFAULT_ITERATIONS',  0); // For PBKDF2, iterations=0 means: Default, depending on the algo
 
 // --- Part 1: Modular Crypt Format encode/decode
 
@@ -163,16 +164,26 @@ function vts_crypt_version($hash) {
 function vts_crypt_hash($algo, $str_password, $str_salt, $ver='1', $mode=PASSWORD_VTS_MCF1_DEFAULT_MODE, $iterations=PASSWORD_VTS_MCF1_DEFAULT_ITERATIONS) {
 	if ($ver == '1') {
 		if ($mode == PASSWORD_VTS_MCF1_MODE_SP) {
-			$payload = $str_salt.$str_password;
-			$bin_hash = hash_ex($algo, $payload, true);
+			$bin_hash = hash_ex($algo, $str_salt.$str_password, true);
+			for ($i=0; $i<$iterations; $i++) {
+				$bin_hash = hash_ex($algo, $str_salt.$bin_hash.$i, true);
+			}
 		} else if ($mode == PASSWORD_VTS_MCF1_MODE_PS) {
-			$payload = $str_password.$str_salt;
-			$bin_hash = hash_ex($algo, $payload, true);
+			$bin_hash = hash_ex($algo, $str_password.$str_salt, true);
+			for ($i=0; $i<$iterations; $i++) {
+				$bin_hash = hash_ex($algo, $bin_hash.$i.$str_salt, true);
+			}
 		} else if ($mode == PASSWORD_VTS_MCF1_MODE_SPS) {
-			$payload = $str_salt.$str_password.$str_salt;
-			$bin_hash = hash_ex($algo, $payload, true);
+			$bin_hash = hash_ex($algo, $str_salt.$str_password.$str_salt, true);
+			for ($i=0; $i<$iterations; $i++) {
+				$bin_hash = hash_ex($algo, $str_salt.$bin_hash.$i.$str_salt, true);
+			}
 		} else if ($mode == PASSWORD_VTS_MCF1_MODE_HMAC) {
 			$bin_hash = hash_hmac_ex($algo, $str_password, $str_salt, true);
+			for ($i=0; $i<$iterations; $i++) {
+				// https://security.stackexchange.com/questions/149299/rounds-in-a-hashing-function
+				$bin_hash = hash_hmac_ex($algo, $str_password, $bin_hash.$i, true);
+			}
 		} else if ($mode == PASSWORD_VTS_MCF1_MODE_PBKDF2) {
 			$bin_hash = hash_pbkdf2_ex($algo, $str_password, $str_salt, $iterations, 0, true);
 		} else {
@@ -182,7 +193,7 @@ function vts_crypt_hash($algo, $str_password, $str_salt, $ver='1', $mode=PASSWOR
 		$params = array();
 		$params['a'] = $algo;
 		$params['m'] = $mode;
-		if ($mode == PASSWORD_VTS_MCF1_MODE_PBKDF2) $params['i'] = $iterations;
+		if ($iterations != 0) $params['i'] = $iterations; // i can be omitted if it is 0.
 		return crypt_modular_format_encode(OID_MCF_VTS_V1, $bin_salt, $bin_hash, $params);
 	} else {
 		throw new Exception("Invalid VTS crypt version, expect 1.");
@@ -210,7 +221,7 @@ function vts_crypt_verify($password, $hash): bool {
 			if (!isset($params['i'])) throw new Exception('Param "i" (iterations) missing');
 			$iterations = $params['i'];
 		} else {
-			$iterations = 0;
+			$iterations = isset($params['i']) ? $params['i'] : 0;
 		}
 
 		// Create a VTS MCF 1.0 hash based on the parameters of $hash and the password $password
@@ -266,6 +277,8 @@ function vts_password_get_info($hash) {
 		if ($options['mode'] == PASSWORD_VTS_MCF1_MODE_PBKDF2) {
 			if (!isset($mcf['params']['i'])) throw new Exception('Param "i" (iterations) missing');
 			$options['iterations'] = (int)$mcf['params']['i'];
+		} else {
+			$options['iterations'] = isset($mcf['params']['i']) ? (int)$mcf['params']['i'] : 0;
 		}
 
 		return array(
@@ -429,7 +442,7 @@ function vts_password_needs_rehash($hash, $algo, $options=array()) {
 			unset($options['salt_length']);
 		}
 
-		// iterations=0 means: Default, depending on the algo
+		// For PBKDF2, iterations=0 means: Default, depending on the algo
 		if (($options['iterations'] == 0/*default*/) && ($options2['mode'] == PASSWORD_VTS_MCF1_MODE_PBKDF2)) {
 			$algo = $options2['algo'];
 			$userland = !hash_pbkdf2_supported_natively($algo) && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash_pbkdf2');
@@ -607,7 +620,7 @@ function vts_password_fill_default_options($algo, $options) {
 				$options['iterations'] = PASSWORD_VTS_MCF1_DEFAULT_ITERATIONS;
 			}
 		} else {
-			unset($options['iterations']);
+			$options['iterations'] = isset($options['iterations']) ? $options['iterations'] : 0;
 		}
 	}
 	return $options;
@@ -691,4 +704,43 @@ assert(true===vts_password_needs_rehash($dummy,PASSWORD_VTS_MCF1,array(
 	'iterations' => 0
 )));
 
+assert(vts_password_verify($password,$dummy = vts_password_hash($password, PASSWORD_VTS_MCF1, array(
+	'algo' => 'sha3-512',
+	'mode' => 'sps',
+	'iterations' => 2
+))));
+//echo "'$dummy' ".strlen($dummy)."\n";
+//var_dump(vts_password_get_info($dummy));
+assert(false===vts_password_needs_rehash($dummy,PASSWORD_VTS_MCF1,array(
+	'salt_length' => 51,
+	'algo' => 'sha3-512',
+	'mode' => 'sps',
+	'iterations' => 2
+)));
+assert(true===vts_password_needs_rehash($dummy,PASSWORD_VTS_MCF1,array(
+	'salt_length' => 50,
+	'algo' => 'sha3-256',
+	'mode' => 'sps',
+	'iterations' => 2
+)));
+
+assert(vts_password_verify($password,$dummy = vts_password_hash($password, PASSWORD_VTS_MCF1, array(
+	'algo' => 'sha3-512',
+	'mode' => 'hmac',
+	'iterations' => 2
+))));
+//echo "'$dummy' ".strlen($dummy)."\n";
+//var_dump(vts_password_get_info($dummy));
+assert(false===vts_password_needs_rehash($dummy,PASSWORD_VTS_MCF1,array(
+	'salt_length' => 51,
+	'algo' => 'sha3-512',
+	'mode' => 'hmac',
+	'iterations' => 2
+)));
+assert(true===vts_password_needs_rehash($dummy,PASSWORD_VTS_MCF1,array(
+	'salt_length' => 50,
+	'algo' => 'sha3-256',
+	'mode' => 'hmac',
+	'iterations' => 2
+)));
 */
