@@ -185,6 +185,7 @@ function vts_crypt_hash($algo, $str_password, $str_salt, $ver='1', $mode=PASSWOR
 				$bin_hash = hash_hmac_ex($algo, $str_password, $bin_hash.$i, true);
 			}
 		} else if ($mode == PASSWORD_VTS_MCF1_MODE_PBKDF2) {
+			// Note: If $iterations=0, then hash_pbkdf2_ex() will correct it to the best value depending on $algo, see _vts_password_default_iterations().
 			$bin_hash = hash_pbkdf2_ex($algo, $str_password, $str_salt, $iterations, 0, true);
 		} else {
 			throw new Exception("Invalid VTS crypt version 1 mode. Expect sp, ps, sps, hmac, or pbkdf2.");
@@ -266,7 +267,7 @@ function vts_password_get_info($hash) {
 		// OID_MCF_VTS_V1
 		$mcf = crypt_modular_format_decode($hash);
 
-		//$options['salt_length'] = strlen($mcf['salt']);  // Note: salt_length is not a MCF option! It's just a hint for vts_password_hash()
+		//$options['salt_length'] = strlen($mcf['salt']);  // Note: salt_length is not an MCF option! It's just a hint for vts_password_hash()
 
 		if (!isset($mcf['params']['a'])) throw new Exception('Param "a" (algo) missing');
 		$options['algo'] = $mcf['params']['a'];
@@ -405,7 +406,7 @@ function vts_password_hash($password, $algo, $options=array()): string {
 		$algo = $options['algo'];
 		$mode = $options['mode'];
 		$iterations = $options['iterations'];
-		$salt_len = isset($options['salt_length']) ? $options['salt_length'] : 50; // Note: salt_length is not a MCF option! It's just a hint for vts_password_hash()
+		$salt_len = isset($options['salt_length']) ? $options['salt_length'] : 32; // Note: salt_length is not an MCF option! It's just a hint for vts_password_hash()
 		$salt = random_bytes_ex($salt_len, true, true);
 		return vts_crypt_hash($algo, $password, $salt, $ver, $mode, $iterations);
 	} else {
