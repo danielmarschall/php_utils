@@ -637,6 +637,7 @@ function _vts_password_default_iterations($algo, $userland) {
 
 // --- Part 6: Selftest
 
+/*
 for ($i=0; $i<9999; $i++) {
 	assert($i===base64_int_decode(base64_int_encode($i,4)));
 }
@@ -690,4 +691,4 @@ assert(true===vts_password_needs_rehash($dummy,PASSWORD_VTS_MCF1,array(
 	'iterations' => 0
 )));
 
-echo "OK, password $password\n";
+*/
