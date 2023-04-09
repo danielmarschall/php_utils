@@ -79,7 +79,7 @@ function git_get_latest_commit_message($git_dir) {
 					// composer require danielmarschall/glip
 					$git = new Git($git_dir);
 					$obj = $git->getObject(hex2bin($commit_object));
-					echo $obj->detail;
+					return $obj->detail;
 				} else {
 					// Own implementation (cannot read delta objects yet)
 					return git_read_object($commit_object,
