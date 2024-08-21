@@ -28,6 +28,11 @@ The function vts_password_verify() replaces password_verify().
 
 ViaThinkSoft Modular Crypt Format 1.0 performs a simple hash or HMAC operation.
 No key derivation function or iterations are performed.
+ViaThinkSoft MCF was invented to allow old passwords (e.g. MD5 with salt) can be easily converted
+to a MCF notation ($...$...$) so that these old passwords can be stored
+in the same data structure as newer crypt passwords, until they get upgraded to a newer
+hash. ViathinkSoft MCF can also be used to encapsulate modern hash algorithms like SHA3/512 into
+a MCF format, so that they can be stored together with other MCF passwords such as bcrypt.
 Format:
 	$1.3.6.1.4.1.37476.3.0.1.1$a=<algo>,m=<mode>[,i=<iterations>]$<salt>$<hash>
 where <algo> is any valid hash algorithm (name scheme of PHP hash_algos() preferred), e.g.
@@ -56,7 +61,7 @@ Valid <mode> :
 	shps = salt + Hash(password) + salt
 	hmac = HMAC (salt is the key)
 	pbkdf2 = PBKDF2-HMAC (Additional param i= contains the number of iterations)
-<iterations> can be omitted if 0. It is required for mode=pbkdf2. For sp/ps/sps/hmac, it is optional.
+<iterations> can be omitted if 0. It is required for mode=pbkdf2. For sp/ps/sps/shp/hps/shps/hmac, it is optional.
 Like most Crypt-hashes, <salt> and <hash> are Radix64 coded
 with alphabet './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz' and no padding.
 Link to the online specification:
