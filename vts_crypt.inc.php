@@ -2,8 +2,8 @@
 
 /*
  * ViaThinkSoft Modular Crypt Format 1.0 and vts_password_*() functions
- * Copyright 2023 Daniel Marschall, ViaThinkSoft
- * Revision 2023-03-03
+ * Copyright 2023-2024 Daniel Marschall, ViaThinkSoft
+ * Revision 2024-08-21
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -51,6 +51,9 @@ Valid <mode> :
 	sp = salt + password
 	ps = password + salt
 	sps = salt + password + salt
+	shp = salt + Hash(password)
+	hps = Hash(password) + salt
+	shps = salt + Hash(password) + salt
 	hmac = HMAC (salt is the key)
 	pbkdf2 = PBKDF2-HMAC (Additional param i= contains the number of iterations)
 <iterations> can be omitted if 0. It is required for mode=pbkdf2. For sp/ps/sps/hmac, it is optional.
@@ -84,6 +87,9 @@ define('PASSWORD_VTS_MCF1',  OID_MCF_VTS_V1);  // Algorithm by ViaThinkSoft
 define('PASSWORD_VTS_MCF1_MODE_SP',             'sp');     // Salt+Password
 define('PASSWORD_VTS_MCF1_MODE_PS',             'ps');     // Password+Salt
 define('PASSWORD_VTS_MCF1_MODE_SPS',            'sps');    // Salt+Password+Salt
+define('PASSWORD_VTS_MCF1_MODE_SHP',            'shp');    // Salt+Hash(Password)
+define('PASSWORD_VTS_MCF1_MODE_HPS',            'hps');    // Hash(Password)+Salt
+define('PASSWORD_VTS_MCF1_MODE_SHPS',           'shps');   // Salt+Hash(Password)+Salt
 define('PASSWORD_VTS_MCF1_MODE_HMAC',           'hmac');   // HMAC
 define('PASSWORD_VTS_MCF1_MODE_PBKDF2',         'pbkdf2'); // PBKDF2-HMAC
 
@@ -175,6 +181,21 @@ function vts_crypt_hash($algo, $str_password, $str_salt, $ver='1', $mode=PASSWOR
 			}
 		} else if ($mode == PASSWORD_VTS_MCF1_MODE_SPS) {
 			$bin_hash = hash_ex($algo, $str_salt.$str_password.$str_salt, true);
+			for ($i=0; $i<$iterations; $i++) {
+				$bin_hash = hash_ex($algo, $str_salt.$bin_hash.$i.$str_salt, true);
+			}
+		} else if ($mode == PASSWORD_VTS_MCF1_MODE_SHP) {
+			$bin_hash = hash_ex($algo, $str_salt.hash_ex($algo,$str_password,true), true);
+			for ($i=0; $i<$iterations; $i++) {
+				$bin_hash = hash_ex($algo, $str_salt.$bin_hash.$i, true);
+			}
+		} else if ($mode == PASSWORD_VTS_MCF1_MODE_HPS) {
+			$bin_hash = hash_ex($algo, hash_ex($algo,$str_password,true).$str_salt, true);
+			for ($i=0; $i<$iterations; $i++) {
+				$bin_hash = hash_ex($algo, $bin_hash.$i.$str_salt, true);
+			}
+		} else if ($mode == PASSWORD_VTS_MCF1_MODE_SHPS) {
+			$bin_hash = hash_ex($algo, $str_salt.hash_ex($algo,$str_password,true).$str_salt, true);
 			for ($i=0; $i<$iterations; $i++) {
 				$bin_hash = hash_ex($algo, $str_salt.$bin_hash.$i.$str_salt, true);
 			}
