@@ -279,11 +279,11 @@ function vts_crypt_verify($password, $hash): bool {
 
 		return hash_equals($calc_authkey_2, $calc_authkey_1);
 	} else {
-		throw new Exception("Invalid VTS crypt version, expect 1.");
+		throw new Exception("Invalid VTS MCF version, expect 1.");
 	}
 }
 
-// --- Part 3: Replacement of vts_password_*() functions
+// --- Part 3: vts_password_*() replacement functions
 
 /**
  * This function replaces password_algos() by extending it with
@@ -683,13 +683,13 @@ function _vts_password_default_iterations($algo, $userland) {
 		else if ($algo == 'sha3-384')    return  100000;
 		else if ($algo == 'sha3-256')    return  100000;
 		else if ($algo == 'sha3-224')    return  100000;
-		else if ($algo == 'sha512')      return  210000; // value by owasp.org cheatcheat (28 February 2023)
-		else if ($algo == 'sha512/256')  return  210000; // value by owasp.org cheatcheat (28 February 2023)
-		else if ($algo == 'sha512/224')  return  210000; // value by owasp.org cheatcheat (28 February 2023)
+		else if ($algo == 'sha512')      return  210000; // value by owasp.org cheatsheet (28 February 2023)
+		else if ($algo == 'sha512/256')  return  210000; // value by owasp.org cheatsheet (28 February 2023)
+		else if ($algo == 'sha512/224')  return  210000; // value by owasp.org cheatsheet (28 February 2023)
 		else if ($algo == 'sha384')      return  600000;
-		else if ($algo == 'sha256')      return  600000; // value by owasp.org cheatcheat (28 February 2023)
+		else if ($algo == 'sha256')      return  600000; // value by owasp.org cheatsheet (28 February 2023)
 		else if ($algo == 'sha224')      return  600000;
-		else if ($algo == 'sha1')        return 1300000; // value by owasp.org cheatcheat (28 February 2023)
+		else if ($algo == 'sha1')        return 1300000; // value by owasp.org cheatsheet (28 February 2023)
 		else if ($algo == 'md5')         return 5000000;
 		else                             return    5000;
 	}
