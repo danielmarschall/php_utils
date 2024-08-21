@@ -20,20 +20,40 @@
 
 /*
 
+Usage of vts_crypt.inc.php
+==========================
+
 The function vts_password_hash() replaces password_hash()
 and adds the ViaThinkSoft Modular Crypt Format 1.0 hash as well as
 all hashes from password_hash() and crypt().
 
 The function vts_password_verify() replaces password_verify().
 
+In other words, use the following methods:
+- vts_password_algos() = password_algos() + crypt() algos + VTS MCF
+- vts_password_get_info() = password_get_info() + VTS MCF
+- vts_password_hash() = password_hash() + crypt() + vts_crypt_hash()
+- vts_password_needs_rehash() = password_needs_rehash() + VTS MCF
+- vts_password_verify() = password_verify() + vts_crypt_verify()
+
+
+About ViaThinkSoft Modular Crypt Format 1.0 (VTS MCF1)
+======================================================
+
 ViaThinkSoft Modular Crypt Format 1.0 performs a simple hash or HMAC operation.
 No key derivation function or iterations are performed.
+
 ViaThinkSoft MCF was invented to allow old passwords (e.g. MD5 with salt) can be easily converted
 to a MCF notation ($...$...$) so that these old passwords can be stored
 in the same data structure as newer crypt passwords, until they get upgraded to a newer
-hash. ViathinkSoft MCF can also be used to encapsulate modern hash algorithms like SHA3/512 into
+hash. But it can also be used to encapsulate modern hash algorithms like SHA3/512 into
 a MCF format, so that they can be stored together with other MCF passwords such as bcrypt.
-Format:
+
+Another innovation is to use Object Identifiers (OIDs) as MCF algorithm identifier.
+Algorithm identifiers such as $1$, $2$, ... are nice to remember and short, but
+can quickly lead to conflicts, and soon you run out of short identifiers.
+
+Format of VTS MCF1:
 	$1.3.6.1.4.1.37476.3.0.1.1$a=<algo>,m=<mode>[,i=<iterations>]$<salt>$<hash>
 where <algo> is any valid hash algorithm (name scheme of PHP hash_algos() preferred), e.g.
 	sha3-512
