@@ -3,7 +3,7 @@
 /*
  * ViaThinkSoft Modular Crypt Format 1.0 and vts_password_*() functions
  * Copyright 2023-2024 Daniel Marschall, ViaThinkSoft
- * Revision 2024-08-21
+ * Revision 2024-08-25
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,18 +23,19 @@
 Usage of vts_crypt.inc.php
 ==========================
 
-The function vts_password_hash() replaces password_hash()
-and adds the ViaThinkSoft Modular Crypt Format 1.0 hash as well as
-all hashes from password_hash() and crypt().
+The function vts_password_hash() replaces password_hash().
+It contains all algorithms from password_hash() and
+adds ViaThinkSoft Modular Crypt Format 1.0 (vts_mcf_hash())
+as well as all hashes from crypt().
 
 The function vts_password_verify() replaces password_verify().
+It combines the normal password_verify(), which is also compatible with crypt(),
+and adds support for ViaThinkSoft Modular Crypt Format 1.0 (vts_mcf_verify()).
 
-In other words, use the following methods:
-- vts_password_algos() = password_algos() + crypt() algos + VTS MCF
-- vts_password_get_info() = password_get_info() + VTS MCF
-- vts_password_hash() = password_hash() + crypt() + vts_crypt_hash()
-- vts_password_needs_rehash() = password_needs_rehash() + VTS MCF
-- vts_password_verify() = password_verify() + vts_crypt_verify()
+Furthermore, use:
+- vts_password_algos() instead of password_algos()
+- vts_password_get_info() instead of password_get_info()
+- vts_password_needs_rehash() instead of password_needs_rehash()
 
 
 About ViaThinkSoft Modular Crypt Format 1.0 (VTS MCF1)
@@ -68,7 +69,7 @@ where <algo> is any valid hash algorithm (name scheme of PHP hash_algos() prefer
 	sha224
 	sha1
 	md5
-Not supported are these hashes (because they have a special salt-handling and output their own crypt format):
+Not possible with MCF1 are these hashes (because they have a special salt-handling and output their own crypt format):
 	bcrypt [Standardized crypt identifier 2, 2a, 2x, 2y]
 	argon2i [Crypt identifier argon2i, not standardized]
 	argon2id [Crypt identifier argon2i, not standardized]
@@ -94,8 +95,11 @@ Reference implementation in PHP:
 require_once __DIR__ . '/misc_functions.inc.php';
 
 define('OID_MCF_VTS_V1',     '1.3.6.1.4.1.37476.3.0.1.1'); // { iso(1) identified-organization(3) dod(6) internet(1) private(4) enterprise(1) 37476 specifications(3) misc(0) modular-crypt-format(1) vts-crypt-v1(1) }
+define('OID_MHA1',           '1.3.6.1.4.1.37476.3.2.1.1'); // { iso(1) identified-organization(3) dod(6) internet(1) private(4) enterprise(1) 37476 specifications(3) algorithm(2) hash(1) mha1(1) }
+define('OID_MHA2',           '1.3.6.1.4.1.37476.3.2.1.2'); // { iso(1) identified-organization(3) dod(6) internet(1) private(4) enterprise(1) 37476 specifications(3) algorithm(2) hash(1) mha2(2) }
+define('OID_MHA3',           '1.3.6.1.4.1.37476.3.2.1.3'); // { iso(1) identified-organization(3) dod(6) internet(1) private(4) enterprise(1) 37476 specifications(3) algorithm(2) hash(1) mha3(3) }
 
-// Valid algorithms for vts_password_hash():
+// Valid algorithms for vts_password_hash(), in addition to the PASSWORD_* contants included in PHP:
 define('PASSWORD_STD_DES',   'std-des');       // Algorithm from crypt()
 define('PASSWORD_EXT_DES',   'ext-des');       // Algorithm from crypt()
 define('PASSWORD_MD5',       'md5');           // Algorithm from crypt()
@@ -103,6 +107,9 @@ define('PASSWORD_BLOWFISH',  'blowfish');      // Algorithm from crypt()
 define('PASSWORD_SHA256',    'sha256');        // Algorithm from crypt()
 define('PASSWORD_SHA512',    'sha512');        // Algorithm from crypt()
 define('PASSWORD_VTS_MCF1',  OID_MCF_VTS_V1);  // Algorithm by ViaThinkSoft
+define('PASSWORD_VTS_MHA1',  OID_MHA1);        // Algorithm by ViaThinkSoft (DEPRECATED!)
+define('PASSWORD_VTS_MHA2',  OID_MHA2);        // Algorithm by ViaThinkSoft (DEPRECATED!)
+define('PASSWORD_VTS_MHA3',  OID_MHA3);        // Algorithm by ViaThinkSoft (DEPRECATED!)
 // Other valid values (already defined in PHP):
 // - PASSWORD_DEFAULT
 // - PASSWORD_BCRYPT
@@ -184,15 +191,7 @@ function crypt_modular_format_decode($mcf) {
 
 // --- Part 2: ViaThinkSoft Modular Crypt Format 1.0
 
-function vts_crypt_version($hash) {
-	if (str_starts_with($hash, '$'.OID_MCF_VTS_V1.'$')) {
-		return '1';
-	} else {
-		return '0';
-	}
-}
-
-function vts_crypt_hash($algo, $str_password, $str_salt, $ver='1', $mode=PASSWORD_VTS_MCF1_DEFAULT_MODE, $iterations=PASSWORD_VTS_MCF1_DEFAULT_ITERATIONS) {
+function vts_mcf_hash($algo, $str_password, $str_salt, $ver='1', $mode=PASSWORD_VTS_MCF1_DEFAULT_MODE, $iterations=PASSWORD_VTS_MCF1_DEFAULT_ITERATIONS) {
 	if ($ver == '1') {
 		if ($mode == PASSWORD_VTS_MCF1_MODE_SP) {
 			$bin_hash = hash_ex($algo, $str_salt.$str_password, true);
@@ -247,9 +246,10 @@ function vts_crypt_hash($algo, $str_password, $str_salt, $ver='1', $mode=PASSWOR
 	}
 }
 
-function vts_crypt_verify($password, $hash): bool {
-	$ver = vts_crypt_version($hash);
-	if ($ver == '1') {
+function vts_mcf_verify($password, $hash): bool {
+	if (str_starts_with($hash, '$'.OID_MCF_VTS_V1.'$')) {
+		$ver = '1';
+
 		// Decode the MCF hash parameters
 		$data = crypt_modular_format_decode($hash);
 		if ($data === false) throw new Exception('Invalid auth key');
@@ -272,7 +272,7 @@ function vts_crypt_verify($password, $hash): bool {
 		}
 
 		// Create a VTS MCF 1.0 hash based on the parameters of $hash and the password $password
-		$calc_authkey_1 = vts_crypt_hash($algo, $password, $bin_salt, $ver, $mode, $iterations);
+		$calc_authkey_1 = vts_mcf_hash($algo, $password, $bin_salt, $ver, $mode, $iterations);
 
 		// We re-encode the MCF to make sure that it can be compared with the VTS MCF 1.0 (correct sorting of params etc.)
 		$calc_authkey_2 = crypt_modular_format_encode($id, $bin_salt, $bin_hash, $params);
@@ -291,7 +291,7 @@ function vts_crypt_verify($password, $hash): bool {
  * @return array of hashes that can be used in vts_password_hash().
  */
 function vts_password_algos() {
-	$hashes = password_algos();
+	$hashes = password_algos();     // Algorithm from password_*()
 	$hashes[] = PASSWORD_STD_DES;   // Algorithm from crypt()
 	$hashes[] = PASSWORD_EXT_DES;   // Algorithm from crypt()
 	$hashes[] = PASSWORD_MD5;       // Algorithm from crypt()
@@ -299,17 +299,21 @@ function vts_password_algos() {
 	$hashes[] = PASSWORD_SHA256;    // Algorithm from crypt()
 	$hashes[] = PASSWORD_SHA512;    // Algorithm from crypt()
 	$hashes[] = PASSWORD_VTS_MCF1;  // Algorithm by ViaThinkSoft
+	$hashes[] = PASSWORD_VTS_MHA1;  // Algorithm by ViaThinkSoft (DEPRECATED!)
+	$hashes[] = PASSWORD_VTS_MHA2;  // Algorithm by ViaThinkSoft (DEPRECATED!)
+	$hashes[] = PASSWORD_VTS_MHA3;  // Algorithm by ViaThinkSoft (DEPRECATED!)
 	return $hashes;
 }
 
-/** vts_password_get_info() is the same as password_get_info(),
+/**
+ * vts_password_get_info() is the same as password_get_info(),
  * but it adds the crypt() and ViaThinkSoft MCF 1.0 algos which can be
  * produced by vts_password_hash()
  * @param string $hash Hash created by vts_password_hash(), password_hash(), or crypt().
  * @return array Same output like password_get_info().
  */
 function vts_password_get_info($hash) {
-	if (vts_crypt_version($hash) == '1') {
+	if (str_starts_with($hash, '$'.OID_MCF_VTS_V1.'$')) {
 		// OID_MCF_VTS_V1
 		$mcf = crypt_modular_format_decode($hash);
 
@@ -333,6 +337,15 @@ function vts_password_get_info($hash) {
 			"algoName" => "vts-mcf-v1",
 			"options" => $options
 		);
+	} else if (str_starts_with($hash, '$'.OID_MHA1.'$')) {
+		// TODO: MHA1 vts_password_get_info()
+		throw new Exception("Not implemented");
+	} else if (str_starts_with($hash, '$'.OID_MHA2.'$')) {
+		// TODO: MHA2 vts_password_get_info()
+		throw new Exception("Not implemented");
+	} else if (str_starts_with($hash, '$'.OID_MHA3.'$')) {
+		// TODO: MHA3 vts_password_get_info()
+		throw new Exception("Not implemented");
 	} else if (!str_starts_with($hash, '$') && (strlen($hash) == 13)) {
 		// PASSWORD_STD_DES
 		return array(
@@ -397,8 +410,9 @@ function vts_password_get_info($hash) {
 	}
 }
 
-/** This function extends password_hash() with the algorithms supported by crypt().
- * It also adds vts_crypt_hash() which implements the ViaThinkSoft Modular Crypt Format 1.0.
+/**
+ * This function extends password_hash() with the algorithms supported by crypt().
+ * It also adds vts_mcf_hash() which implements the ViaThinkSoft Modular Crypt Format 1.0.
  * The result can be verified using vts_password_verify().
  * @param string $password to be hashed
  * @param mixed $algo algorithm
@@ -454,7 +468,16 @@ function vts_password_hash($password, $algo, $options=array()): string {
 		$iterations = $options['iterations'];
 		$salt_len = isset($options['salt_length']) ? $options['salt_length'] : 32; // Note: salt_length is not an MCF option! It's just a hint for vts_password_hash()
 		$salt = random_bytes_ex($salt_len, true, true);
-		return vts_crypt_hash($algo, $password, $salt, $ver, $mode, $iterations);
+		return vts_mcf_hash($algo, $password, $salt, $ver, $mode, $iterations);
+	} else if ($algo === PASSWORD_VTS_MHA1) {
+		// TODO: MHA1 vts_password_hash()
+		throw new Exception("Not implemented");
+	} else if ($algo === PASSWORD_VTS_MHA2) {
+		// TODO: MHA2 vts_password_hash()
+		throw new Exception("Not implemented");
+	} else if ($algo === PASSWORD_VTS_MHA3) {
+		// TODO: MHA3 vts_password_hash()
+		throw new Exception("Not implemented");
 	} else {
 		// Algorithms: PASSWORD_DEFAULT
 		//             PASSWORD_BCRYPT
@@ -464,7 +487,8 @@ function vts_password_hash($password, $algo, $options=array()): string {
 	}
 }
 
-/** This function replaces password_needs_rehash() by adding additional algorithms
+/**
+ * This function replaces password_needs_rehash() by adding additional algorithms
  * supported by vts_password_hash().
  * @param string $hash The current hash
  * @param string|int|null $algo Desired new default algo
@@ -481,7 +505,7 @@ function vts_password_needs_rehash($hash, $algo, $options=array()) {
 	// Check if algorithm matches
 	if ($algo !== $algo2) return true;
 
-	if (vts_crypt_version($hash) == '1') {
+	if (str_starts_with($hash, '$'.OID_MCF_VTS_V1.'$')) {
 		if (isset($options['salt_length'])) {
 			// For VTS MCF 1.0, salt_length is a valid option for vts_password_hash(),
 			// but it is not a valid option inside the MCF options
@@ -495,6 +519,15 @@ function vts_password_needs_rehash($hash, $algo, $options=array()) {
 			$userland = !hash_pbkdf2_supported_natively($algo) && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash_pbkdf2');
 			$options['iterations'] = _vts_password_default_iterations($algo, $userland);
 		}
+	} else if (str_starts_with($hash, '$'.OID_MHA1.'$')) {
+		// MHA1 is deprecated, so it always needs a rehash?!
+		return true;
+	} else if (str_starts_with($hash, '$'.OID_MHA2.'$')) {
+		// MHA2 is deprecated, so it always needs a rehash?!
+		return true;
+	} else if (str_starts_with($hash, '$'.OID_MHA3.'$')) {
+		// MHA3 is deprecated, so it always needs a rehash?!
+		return true;
 	}
 
 	// Check if options match
@@ -505,15 +538,25 @@ function vts_password_needs_rehash($hash, $algo, $options=array()) {
 	return false;
 }
 
-/** This function extends password_verify() by adding ViaThinkSoft Modular Crypt Format 1.0.
+/**
+ * This function extends password_verify() by adding ViaThinkSoft Modular Crypt Format 1.0.
  * @param string $password to be checked
  * @param string $hash Hash created by crypt(), password_hash(), or vts_password_hash().
  * @return bool true if password is valid
  */
 function vts_password_verify($password, $hash): bool {
-	if (vts_crypt_version($hash) != '0') {
-		// Hash created by vts_password_hash(), or vts_crypt_hash()
-		return vts_crypt_verify($password, $hash);
+	if (str_starts_with($hash, '$'.OID_MCF_VTS_V1.'$')) {
+		// Hash created by vts_password_hash(), or vts_mcf_hash()
+		return vts_mcf_verify($password, $hash);
+	} else if (str_starts_with($hash, '$'.OID_MHA1.'$')) {
+		// TODO: MHA1 vts_password_verify()
+		throw new Exception("Not implemented");
+	} else if (str_starts_with($hash, '$'.OID_MHA2.'$')) {
+		// TODO: MHA2 vts_password_verify()
+		throw new Exception("Not implemented");
+	} else if (str_starts_with($hash, '$'.OID_MHA3.'$')) {
+		// TODO: MHA3 vts_password_verify()
+		throw new Exception("Not implemented");
 	} else {
 		// Hash created by vts_password_hash(), password_hash(), or crypt()
 		return password_verify($password, $hash);
