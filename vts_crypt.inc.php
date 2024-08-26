@@ -3,7 +3,7 @@
 /*
  * ViaThinkSoft Modular Crypt Format 1.0 and vts_password_*() functions
  * Copyright 2023-2024 Daniel Marschall, ViaThinkSoft
- * Revision 2024-08-26
+ * Revision 2024-08-27
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,8 +26,8 @@ Usage of vts_crypt.inc.php
 The function vts_password_hash() replaces password_hash().
 It contains all algorithms from password_hash() and
 adds ViaThinkSoft Modular Crypt Format 1.0 (vts_mcf1_hash()),
-adds ViaThinkSoft MHA1 (deprecated), MHA2 (deprecated), MHA3 (deprecated)
-as well as all hashes from crypt().
+adds ViaThinkSoft MHA1 (deprecated), MHA2 (deprecated), MHA3 (deprecated),
+NTLM, apr1 (htdigest), as well as all hashes from crypt().
 
 The function vts_password_verify() replaces password_verify().
 It combines the normal password_verify(), which is also compatible with crypt(),
@@ -110,6 +110,7 @@ define('PASSWORD_BLOWFISH',  'blowfish');      // Algorithm from crypt()
 define('PASSWORD_SHA256',    'sha256');        // Algorithm from crypt()
 define('PASSWORD_SHA512',    'sha512');        // Algorithm from crypt()
 define('PASSWORD_NTLM',      'ntlm');          // Algorithm manually implemented
+define('PASSWORD_APR_MD5',   'apr_md5');       // Algorithm manually implemented
 define('PASSWORD_VTS_MCF1',  OID_MCF_VTS_V1);  // Algorithm by ViaThinkSoft
 define('PASSWORD_VTS_MHA1',  OID_MHA_VTS_V1);  // Algorithm by ViaThinkSoft (DEPRECATED!)
 define('PASSWORD_VTS_MHA2',  OID_MHA_VTS_V2);  // Algorithm by ViaThinkSoft (DEPRECATED!)
@@ -443,7 +444,69 @@ function ntlm_hash($password) {
 }
 
 function ntlm_verify($password, $hash): bool {
-	return hash_equals($hash, $password);
+	if (!str_starts_with($hash, '$3$')) {
+		throw new Exception("This is not a NTLM hash.");
+	}
+	return hash_equals($hash, ntlm_hash($password));
+}
+
+function apr1_hash($mdp, $salt = null) {
+        // Source/References for core algorithm:
+        // http://www.cryptologie.net/article/126/bruteforce-apr1-hashes/
+        // http://svn.apache.org/viewvc/apr/apr-util/branches/1.3.x/crypto/apr_md5.c?view=co
+        // http://www.php.net/manual/en/function.crypt.php#73619
+        // http://httpd.apache.org/docs/2.2/misc/password_encryptions.html
+        // Wikipedia
+        $BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+        $APRMD5_ALPHABET = './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+        if (is_null($salt)) {
+            $salt = '';
+            for($i=0; $i<8; $i++) {
+                $offset = hexdec(bin2hex(openssl_random_pseudo_bytes(1))) % 64;
+                $salt .= $APRMD5_ALPHABET[$offset];
+            }
+        } else {
+                // TODO: Only if salt is binary!
+                $salt = crypt_radix64_encode($salt);
+        }
+        $salt = substr($salt, 0, 8);
+        $max = strlen($mdp);
+        $context = $mdp.'$apr1$'.$salt;
+        $binary = pack('H32', md5($mdp.$salt.$mdp));
+        for($i=$max; $i>0; $i-=16)
+            $context .= substr($binary, 0, min(16, $i));
+        for($i=$max; $i>0; $i>>=1)
+            $context .= ($i & 1) ? chr(0) : $mdp[0];
+        $binary = pack('H32', md5($context));
+        for($i=0; $i<1000; $i++) {
+            $new = ($i & 1) ? $mdp : $binary;
+            if($i % 3) $new .= $salt;
+            if($i % 7) $new .= $mdp;
+            $new .= ($i & 1) ? $binary : $mdp;
+            $binary = pack('H32', md5($new));
+        }
+        $hash = '';
+        for ($i = 0; $i < 5; $i++) {
+            $k = $i+6;
+            $j = $i+12;
+            if($j == 16) $j = 5;
+            $hash = $binary[$i].$binary[$k].$binary[$j].$hash;
+        }
+        $hash = chr(0).chr(0).$binary[11].$hash;
+        $hash = strtr(
+            strrev(substr(base64_encode($hash), 2)),
+            $BASE64_ALPHABET,
+            $APRMD5_ALPHABET
+        );
+        return '$apr1$'.$salt.'$'.$hash;
+}
+
+function apr1_verify($password, $hash): bool {
+	if (!str_starts_with($hash, '$apr1$')) {
+		throw new Exception("This is not a APR MD5 hash.");
+	}
+	$data = crypt_modular_format_decode($hash);
+	return hash_equals($hash, apr1_hash($password,$data['salt']));
 }
 
 // --- Part 3: vts_password_*() replacement functions
@@ -462,6 +525,7 @@ function vts_password_algos() {
 	$hashes[] = PASSWORD_SHA256;    // Algorithm from crypt()
 	$hashes[] = PASSWORD_SHA512;    // Algorithm from crypt()
 	$hashes[] = PASSWORD_NTLM;      // Algorithm manually implemented
+	$hashes[] = PASSWORD_APR_MD5;   // Algorithm manually implemented
 	$hashes[] = PASSWORD_VTS_MCF1;  // Algorithm by ViaThinkSoft
 	$hashes[] = PASSWORD_VTS_MHA1;  // Algorithm by ViaThinkSoft (DEPRECATED!)
 	$hashes[] = PASSWORD_VTS_MHA2;  // Algorithm by ViaThinkSoft (DEPRECATED!)
@@ -537,6 +601,15 @@ function vts_password_get_info($hash) {
 		return array(
 			"algo" => PASSWORD_NTLM,
 			"algoName" => "ntlm",
+			"options" => $options
+		);
+	} else if (str_starts_with($hash, '$apr1$')) {
+		// APR MD5
+		$mcf = crypt_modular_format_decode($hash);
+
+		return array(
+			"algo" => PASSWORD_APR_MD5,
+			"algoName" => "apr1",
 			"options" => $options
 		);
 	} else if (str_starts_with($hash, '$'.OID_MHA_VTS_V3.'$')) {
@@ -702,6 +775,9 @@ function vts_password_hash($password, $algo, $options=array()): string {
 	} else if ($algo === PASSWORD_NTLM) {
 		// Algorithms: PASSWORD_NTLM
 		return ntlm_hash($password);
+	} else if ($algo === PASSWORD_APR_MD5) {
+		// Algorithms: PASSWORD_APR_MD5
+		return apr1_hash($password);
 	} else {
 		// Algorithms: PASSWORD_DEFAULT
 		//             PASSWORD_BCRYPT
@@ -762,6 +838,9 @@ function vts_password_needs_rehash($hash, $algo, $options=array()) {
 	} else if (str_starts_with($hash, '$3$')) {
 		// NTLM has no parameters, so it does not need a rehash
 		return false;
+	} else if (str_starts_with($hash, '$apr1$')) {
+		// APR MD5 has no parameters, so it does not need a rehash
+		return false;
 	}
 
 	// Check if options match
@@ -794,6 +873,9 @@ function vts_password_verify($password, $hash): bool {
 	} else if (str_starts_with($hash, '$3$')) {
 		// Hash created by vts_password_hash()
 		return ntlm_verify($password, $hash);
+	} else if (str_starts_with($hash, '$apr1$')) {
+		// Hash created by vts_password_hash()
+		return apr1_verify($password, $hash);
 	} else {
 		// Hash created by vts_password_hash(), password_hash(), or crypt()
 		return password_verify($password, $hash);
@@ -1102,6 +1184,12 @@ assert(vts_password_verify('hello world', $hash));
 assert(!vts_password_verify('hello world!', $hash));
 // NTLM
 $hash = vts_password_hash('hello world', PASSWORD_NTLM);
+echo "$hash\n";
+assert(vts_password_verify('hello world', $hash));
+assert(!vts_password_verify('hello world!', $hash));
+// htdigest
+$hash = vts_password_hash('hello world', PASSWORD_APR_MD5);
+echo "$hash\n";
 assert(vts_password_verify('hello world', $hash));
 assert(!vts_password_verify('hello world!', $hash));
 */
