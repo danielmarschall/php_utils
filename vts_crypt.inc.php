@@ -102,12 +102,14 @@ define('OID_MHA_VTS_V2',     '1.3.6.1.4.1.37476.3.2.1.2'); // { iso(1) identifie
 define('OID_MHA_VTS_V3',     '1.3.6.1.4.1.37476.3.2.1.3'); // { iso(1) identified-organization(3) dod(6) internet(1) private(4) enterprise(1) 37476 specifications(3) algorithm(2) hash(1) mha3(3) }
 
 // Valid algorithms for vts_password_hash(), in addition to the PASSWORD_* contants included in PHP:
+// TODO: Implement more algorithms which are not implemented by PHP, e.g. YESCRYPT, APR1, etc.
 define('PASSWORD_STD_DES',   'std-des');       // Algorithm from crypt()
 define('PASSWORD_EXT_DES',   'ext-des');       // Algorithm from crypt()
 define('PASSWORD_MD5',       'md5');           // Algorithm from crypt()
 define('PASSWORD_BLOWFISH',  'blowfish');      // Algorithm from crypt()
 define('PASSWORD_SHA256',    'sha256');        // Algorithm from crypt()
 define('PASSWORD_SHA512',    'sha512');        // Algorithm from crypt()
+define('PASSWORD_NTLM',      'ntlm');          // Algorithm manually implemented
 define('PASSWORD_VTS_MCF1',  OID_MCF_VTS_V1);  // Algorithm by ViaThinkSoft
 define('PASSWORD_VTS_MHA1',  OID_MHA_VTS_V1);  // Algorithm by ViaThinkSoft (DEPRECATED!)
 define('PASSWORD_VTS_MHA2',  OID_MHA_VTS_V2);  // Algorithm by ViaThinkSoft (DEPRECATED!)
@@ -436,6 +438,14 @@ function vts_mha3_verify($password, $hash): bool {
 	return hash_equals($calc_authkey_2, $calc_authkey_1);
 }
 
+function ntlm_hash($password) {
+	return '$3$$'.strtolower(hash('md4',iconv('UTF-8','UTF-16LE',$password)));
+}
+
+function ntlm_verify($password, $hash): bool {
+	return hash_equals($hash, $password);
+}
+
 // --- Part 3: vts_password_*() replacement functions
 
 /**
@@ -451,6 +461,7 @@ function vts_password_algos() {
 	$hashes[] = PASSWORD_BLOWFISH;  // Algorithm from crypt()
 	$hashes[] = PASSWORD_SHA256;    // Algorithm from crypt()
 	$hashes[] = PASSWORD_SHA512;    // Algorithm from crypt()
+	$hashes[] = PASSWORD_NTLM;      // Algorithm manually implemented
 	$hashes[] = PASSWORD_VTS_MCF1;  // Algorithm by ViaThinkSoft
 	$hashes[] = PASSWORD_VTS_MHA1;  // Algorithm by ViaThinkSoft (DEPRECATED!)
 	$hashes[] = PASSWORD_VTS_MHA2;  // Algorithm by ViaThinkSoft (DEPRECATED!)
@@ -466,6 +477,7 @@ function vts_password_algos() {
  * @return array Same output like password_get_info().
  */
 function vts_password_get_info($hash) {
+	$options = array();
 	if (str_starts_with($hash, '$'.OID_MCF_VTS_V1.'$')) {
 		// OID_MCF_VTS_V1
 		$mcf = crypt_modular_format_decode($hash);
@@ -516,6 +528,15 @@ function vts_password_get_info($hash) {
 		return array(
 			"algo" => PASSWORD_VTS_MHA2,
 			"algoName" => "vts-mha-v2",
+			"options" => $options
+		);
+	} else if (str_starts_with($hash, '$3$')) {
+		// NTLM
+		$mcf = crypt_modular_format_decode($hash);
+
+		return array(
+			"algo" => PASSWORD_NTLM,
+			"algoName" => "ntlm",
 			"options" => $options
 		);
 	} else if (str_starts_with($hash, '$'.OID_MHA_VTS_V3.'$')) {
@@ -678,6 +699,9 @@ function vts_password_hash($password, $algo, $options=array()): string {
 		$length = $options['length'];
 		$base_algo = $options['algo'];
 		return vts_mha3_hash($password, $length, $iterations, $base_algo);
+	} else if ($algo === PASSWORD_NTLM) {
+		// Algorithms: PASSWORD_NTLM
+		return ntlm_hash($password);
 	} else {
 		// Algorithms: PASSWORD_DEFAULT
 		//             PASSWORD_BCRYPT
@@ -720,14 +744,24 @@ function vts_password_needs_rehash($hash, $algo, $options=array()) {
 			$options['iterations'] = _vts_password_default_iterations($algo, $userland);
 		}
 	} else if (str_starts_with($hash, '$'.OID_MHA_VTS_V1.'$')) {
-		// MHA1 is deprecated, so it always needs a rehash?!
-		return true;
+		if (isset($options['salt_length'])) {
+			// For VTS MHA 1.0, salt_length is a valid option for vts_password_hash(),
+			// but it is not a valid option inside the MCF options
+			// and it is not a valid option for vts_password_get_info().
+			unset($options['salt_length']);
+		}
 	} else if (str_starts_with($hash, '$'.OID_MHA_VTS_V2.'$')) {
-		// MHA2 is deprecated, so it always needs a rehash?!
-		return true;
+		if (isset($options['salt_length'])) {
+			// For VTS MHA 1.0, salt_length is a valid option for vts_password_hash(),
+			// but it is not a valid option inside the MCF options
+			// and it is not a valid option for vts_password_get_info().
+			unset($options['salt_length']);
+		}
 	} else if (str_starts_with($hash, '$'.OID_MHA_VTS_V3.'$')) {
-		// MHA3 is deprecated, so it always needs a rehash?!
-		return true;
+		// MHA3 has no salt
+	} else if (str_starts_with($hash, '$3$')) {
+		// NTLM has no parameters, so it does not need a rehash
+		return false;
 	}
 
 	// Check if options match
@@ -757,6 +791,9 @@ function vts_password_verify($password, $hash): bool {
 	} else if (str_starts_with($hash, '$'.OID_MHA_VTS_V3.'$')) {
 		// Hash created by vts_password_hash(), or vts_mha3_hash()
 		return vts_mha3_verify($password, $hash);
+	} else if (str_starts_with($hash, '$3$')) {
+		// Hash created by vts_password_hash()
+		return ntlm_verify($password, $hash);
 	} else {
 		// Hash created by vts_password_hash(), password_hash(), or crypt()
 		return password_verify($password, $hash);
@@ -1061,6 +1098,10 @@ assert(vts_password_verify('hello world', $hash));
 assert(!vts_password_verify('hello world!', $hash));
 // MHA 3
 $hash = vts_password_hash('hello world', PASSWORD_VTS_MHA3);
+assert(vts_password_verify('hello world', $hash));
+assert(!vts_password_verify('hello world!', $hash));
+// NTLM
+$hash = vts_password_hash('hello world', PASSWORD_NTLM);
 assert(vts_password_verify('hello world', $hash));
 assert(!vts_password_verify('hello world!', $hash));
 */
