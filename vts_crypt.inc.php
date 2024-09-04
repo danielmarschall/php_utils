@@ -287,18 +287,18 @@ function vts_mcf1_verify($password, $hash): bool {
 	return hash_equals($calc_authkey_2, $calc_authkey_1);
 }
 
-function vts_mha1_hash($data, $iteratedSalt='', $iterations=1987) {
-	if (!is_numeric($iterations) || ($iterations<0)) {
-		trigger_error('at function ' . __FUNCTION__ . ': $iterations has to be greater or equal 0', E_USER_ERROR);
+function vts_mha1_hash($data, $iteratedSalt='', $iterations=1987, $base_algo='sha1') {
+	if (!is_numeric($iterations) || ($iterations<1)) {
+		trigger_error('at function ' . __FUNCTION__ . ': $iterations has to be greater or equal 1', E_USER_ERROR);
 		return false;
 	}
 	$m = $data;
 	for ($i=1; $i<=$iterations; $i++) {
-		$m = sha1($iteratedSalt.$m.$iteratedSalt, true); // SHA1 with binary output
+		$m = hash($base_algo, $iteratedSalt.$m.$iteratedSalt, true); // SHA1 with binary output
 	}
 	$bin_hash = $m;
 	$bin_salt = $iteratedSalt;
-	$params = [ "i" => $iterations ];
+	$params = [ "a" => $base_algo, "i" => $iterations ];
 	return crypt_modular_format_encode(OID_MHA_VTS_V1, $bin_salt, $bin_hash, $params);
 }
 
@@ -315,11 +315,14 @@ function vts_mha1_verify($password, $hash): bool {
 	$bin_hash = $data['hash'];
 	$params = $data['params'];
 
+	if (!isset($params['a'])) throw new Exception('Param "a" (algo) missing');
+	$base_algo = $params['a'];
+
 	if (!isset($params['i'])) throw new Exception('Param "i" (iterations) missing');
 	$iterations = $params['i'];
 
 	// Create a VTS MHA 1.0 hash based on the parameters of $hash and the password $password
-	$calc_authkey_1 = vts_mha1_hash($password, $bin_salt, $iterations);
+	$calc_authkey_1 = vts_mha1_hash($password, $bin_salt, $iterations, $base_algo);
 
 	// We re-encode the MCF to make sure that it can be compared with the VTS MHA 1.0 (correct sorting of params etc.)
 	$calc_authkey_2 = crypt_modular_format_encode($id, $bin_salt, $bin_hash, $params);
@@ -361,14 +364,17 @@ function vts_mha2_verify($password, $hash): bool {
 	$id = $data['id'];
 	$bin_salt = $data['salt'];
 	$bin_hash = $data['hash'];
-	$algo = $data['algo'];
+	$base_algo = $data['algo'];
 	$params = $data['params'];
+
+	if (!isset($params['a'])) throw new Exception('Param "a" (algo) missing');
+	$base_algo = $params['a'];
 
 	if (!isset($params['i'])) throw new Exception('Param "i" (iterations) missing');
 	$iterations = $params['i'];
 
 	// Create a VTS MHA 2.0 hash based on the parameters of $hash and the password $password
-	$calc_authkey_1 = vts_mha2_hash($password, $bin_salt, $iterations, $algo);
+	$calc_authkey_1 = vts_mha2_hash($password, $bin_salt, $iterations, $base_algo);
 
 	// We re-encode the MCF to make sure that it can be compared with the VTS MHA 2.0 (correct sorting of params etc.)
 	$calc_authkey_2 = crypt_modular_format_encode($id, $bin_salt, $bin_hash, $params);
@@ -530,7 +536,7 @@ function vts_password_algos() {
 	$hashes[] = PASSWORD_VTS_MCF1;  // Algorithm by ViaThinkSoft
 	$hashes[] = PASSWORD_VTS_MHA1;  // Algorithm by ViaThinkSoft (DEPRECATED!)
 	$hashes[] = PASSWORD_VTS_MHA2;  // Algorithm by ViaThinkSoft (DEPRECATED!)
-	$hashes[] = PASSWORD_VTS_MHA3;  // Algorithm by ViaThinkSoft (DEPRECATED!)
+	$hashes[] = PASSWORD_VTS_MHA3;  // Algorithm by ViaThinkSoft (DEPREACTED!)
 	return $hashes;
 }
 
@@ -572,6 +578,9 @@ function vts_password_get_info($hash) {
 		$mcf = crypt_modular_format_decode($hash);
 
 		//$options['salt_length'] = strlen($mcf['salt']);  // Note: salt_length is not an MCF option! It's just a hint for vts_password_hash()
+
+		if (!isset($mcf['params']['a'])) throw new Exception('Param "a" (algo) missing');
+		$options['algo'] = $mcf['params']['a'];
 
 		if (!isset($mcf['params']['i'])) throw new Exception('Param "i" (iterations) missing');
 		$options['iterations'] = (int)$mcf['params']['i'];
@@ -760,22 +769,23 @@ function vts_password_hash($password, $algo, $options=array()): string {
 		return vts_mcf1_hash($algo, $password, $salt, $mode, $iterations);
 	} else if ($algo === PASSWORD_VTS_MHA1) {
 		// Algorithms: PASSWORD_VTS_MHA1
+		$base_algo = $options['algo'];
 		$iterations = $options['iterations'];
 		$salt_len = isset($options['salt_length']) ? $options['salt_length'] : 32; // Note: salt_length is not an MCF option! It's just a hint for vts_password_hash()
 		$salt = random_bytes_ex($salt_len, true, true);
-		return vts_mha1_hash($password, $salt, $iterations);
+		return vts_mha1_hash($password, $salt, $iterations, $base_algo);
 	} else if ($algo === PASSWORD_VTS_MHA2) {
 		// Algorithms: PASSWORD_VTS_MHA2
+		$base_algo = $options['algo'];
 		$iterations = $options['iterations'];
 		$salt_len = isset($options['salt_length']) ? $options['salt_length'] : 32; // Note: salt_length is not an MCF option! It's just a hint for vts_password_hash()
 		$salt = random_bytes_ex($salt_len, true, true);
-		$base_algo = $options['algo'];
 		return vts_mha2_hash($password, $salt, $iterations, $base_algo);
 	} else if ($algo === PASSWORD_VTS_MHA3) {
 		// Algorithms: PASSWORD_VTS_MHA3
+		$base_algo = $options['algo'];
 		$iterations = $options['iterations'];
 		$length = $options['length'];
-		$base_algo = $options['algo'];
 		return vts_mha3_hash($password, $length, $iterations, $base_algo);
 	} else if ($algo === PASSWORD_NTLM) {
 		// Algorithms: PASSWORD_NTLM
@@ -839,7 +849,7 @@ function vts_password_needs_rehash($hash, $algo, $options=array()) {
 			unset($options['salt_length']);
 		}
 	} else if (str_starts_with($hash, '$'.OID_MHA_VTS_V3.'$')) {
-		// MHA3 has no salt
+		// MHA3 has no salt, hence no salt length option which needs to be removed
 	} else if (str_starts_with($hash, '$3$')) {
 		// NTLM has no parameters, so it does not need a rehash
 		return false;
