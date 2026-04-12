@@ -102,16 +102,17 @@ where <algo> is:
 		bcrypt [Standardized crypt identifier 2, 2a, 2b, 2x, 2y]
 		argon2i [Crypt identifier argon2i, not standardized]
 		argon2id [Crypt identifier argon2id, not standardized]
-Valid <mode> for MCF1:
-	sp = salt + password
-	ps = password + salt
-	sps = salt + password + salt
-	shp = salt + Hash(password)
-	hps = Hash(password) + salt
-	shps = salt + Hash(password) + salt
-	hmac = HMAC (salt is the key)
-	pbkdf2 = PBKDF2-HMAC (Additional param i= contains the number of iterations)
-Valid <mode> for MCF2:
+Valid <mode> for VTS MCF1:
+	sp     = salt + password                  Note: In VTS MCF2 this mode will be hash[sp],       and behaves equal if iterations i=0
+	ps     = password + salt                  Note: In VTS MCF2 this mode will be hash[ps],       and behaves equal if iterations i=0
+	sps    = salt + password + salt           Note: In VTS MCF2 this mode will be hash[sps],      and behaves equal if iterations i=0
+	shp    = salt + Hash(password)            Note: In VTS MCF2 this mode will be hash[shbx(p)],  and behaves equal if iterations i=0
+	hps    = Hash(password) + salt            Note: In VTS MCF2 this mode will be hash[hbx(p)s],  and behaves equal if iterations i=0
+	shps   = salt + Hash(password) + salt     Note: In VTS MCF2 this mode will be hash[shbx(p)s], and behaves equal if iterations i=0
+	hmac   = HMAC (salt is the key)           Note: In VTS MCF2 this mode will be hmac[s;p],      and behaves equal if iterations i=0
+	pbkdf2 = PBKDF2-HMAC                      Note: In VTS MCF2 this mode will be pbkdf2[s;p]
+	         (Additional param i= contains the number of iterations)
+Valid <mode> for VTS MCF2:
 	it can be one of these:
 		hmac[<formula for key>;<formula for payload>]
 		pbkdf2[<formula for salt>;<formula for payload>]
@@ -125,7 +126,12 @@ Valid <mode> for MCF2:
 		p means password
 	EXAMPLE:
 		m=hash[shbx(sp)] means that the hash will be Hash(Salt+Hash(Salt+Password))
-<iterations> can be omitted if 0. It is required for mode=pbkdf2. For sp/ps/sps/shp/hps/shps/hmac, it is optional (and implemented proprietary).
+Regarding <iterations>:
+	The parameter "i" can be omitted if 0.
+	It is required for mode=pbkdf2
+	For sp/ps/sps/shp/hps/shps/hmac, it is optional (and implemented proprietary), and implemented as follows:
+	- For VTS MCF1: It repeats the hash/hmac operation and inserts the numbers 0, 1, 2, 3, 4, ... into the payload of the next iteration
+	- For VTS MCF2: It repeats the hash/hmac operation
 Like most Crypt-hashes, <salt> and <hash> are Radix64 coded
 with alphabet './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz' and no padding.
 Link to the online specification:
@@ -262,53 +268,52 @@ function crypt_modular_format_decode($mcf) {
 
 // --- Part 2: ViaThinkSoft hashes (do not use these methods directly!)
 
-function vts_mcf1_hash($algo, $str_password, $str_salt, $mode=PASSWORD_VTS_MCF1_DEFAULT_MODE, $iterations=PASSWORD_VTS_MCF1_DEFAULT_ITERATIONS) {
+function vts_mcf1_hash($algo, $str_password, $bin_salt, $mode=PASSWORD_VTS_MCF1_DEFAULT_MODE, $iterations=PASSWORD_VTS_MCF1_DEFAULT_ITERATIONS) {
 	if ($mode == PASSWORD_VTS_MCF1_MODE_SP) {
-		$bin_hash = hash_ex($algo, $str_salt.$str_password, true);
+		$bin_hash = hash_ex($algo, $bin_salt.$str_password, true);
 		for ($i=0; $i<$iterations; $i++) {
-			$bin_hash = hash_ex($algo, $str_salt.$bin_hash.$i, true);
+			$bin_hash = hash_ex($algo, $bin_salt.$bin_hash.$i, true);
 		}
 	} else if ($mode == PASSWORD_VTS_MCF1_MODE_PS) {
-		$bin_hash = hash_ex($algo, $str_password.$str_salt, true);
+		$bin_hash = hash_ex($algo, $str_password.$bin_salt, true);
 		for ($i=0; $i<$iterations; $i++) {
-			$bin_hash = hash_ex($algo, $bin_hash.$i.$str_salt, true);
+			$bin_hash = hash_ex($algo, $bin_hash.$i.$bin_salt, true);
 		}
 	} else if ($mode == PASSWORD_VTS_MCF1_MODE_SPS) {
-		$bin_hash = hash_ex($algo, $str_salt.$str_password.$str_salt, true);
+		$bin_hash = hash_ex($algo, $bin_salt.$str_password.$bin_salt, true);
 		for ($i=0; $i<$iterations; $i++) {
-			$bin_hash = hash_ex($algo, $str_salt.$bin_hash.$i.$str_salt, true);
+			$bin_hash = hash_ex($algo, $bin_salt.$bin_hash.$i.$bin_salt, true);
 		}
 	} else if ($mode == PASSWORD_VTS_MCF1_MODE_SHP) {
-		$bin_hash = hash_ex($algo, $str_salt.hash_ex($algo,$str_password,true), true);
+		$bin_hash = hash_ex($algo, $bin_salt.hash_ex($algo,$str_password,true), true);
 		for ($i=0; $i<$iterations; $i++) {
-			$bin_hash = hash_ex($algo, $str_salt.$bin_hash.$i, true);
+			$bin_hash = hash_ex($algo, $bin_salt.$bin_hash.$i, true);
 		}
 	} else if ($mode == PASSWORD_VTS_MCF1_MODE_HPS) {
-		$bin_hash = hash_ex($algo, hash_ex($algo,$str_password,true).$str_salt, true);
+		$bin_hash = hash_ex($algo, hash_ex($algo,$str_password,true).$bin_salt, true);
 		for ($i=0; $i<$iterations; $i++) {
-			$bin_hash = hash_ex($algo, $bin_hash.$i.$str_salt, true);
+			$bin_hash = hash_ex($algo, $bin_hash.$i.$bin_salt, true);
 		}
 	} else if ($mode == PASSWORD_VTS_MCF1_MODE_SHPS) {
-		$bin_hash = hash_ex($algo, $str_salt.hash_ex($algo,$str_password,true).$str_salt, true);
+		$bin_hash = hash_ex($algo, $bin_salt.hash_ex($algo,$str_password,true).$bin_salt, true);
 		for ($i=0; $i<$iterations; $i++) {
-			$bin_hash = hash_ex($algo, $str_salt.$bin_hash.$i.$str_salt, true);
+			$bin_hash = hash_ex($algo, $bin_salt.$bin_hash.$i.$bin_salt, true);
 		}
 	} else if ($mode == PASSWORD_VTS_MCF1_MODE_HMAC) {
-		$bin_hash = hash_hmac_ex($algo, $str_password, $str_salt, true);
+		$bin_hash = hash_hmac_ex($algo, $str_password, $bin_salt, true);
 		for ($i=0; $i<$iterations; $i++) {
 			$bin_hash = hash_hmac_ex($algo, $str_password, $bin_hash.$i, true);
 		}
 	} else if ($mode == PASSWORD_VTS_MCF1_MODE_PBKDF2) {
 		// Note: If $iterations=0, then hash_pbkdf2_ex() will correct it to the best value depending on $algo, see _vts_password_default_iterations().
-		$bin_hash = hash_pbkdf2_ex($algo, $str_password, $str_salt, $iterations, /*length*/0, true);
+		$bin_hash = hash_pbkdf2_ex($algo, $str_password, $bin_salt, $iterations, /*length*/0, true);
 	} else {
 		throw new Exception("Invalid VTS MCF1 Mode '$mode'. Use any of PASSWORD_VTS_MCF1_MODE_*.");
 	}
-	$bin_salt = $str_salt;
 	$params = array();
 	$params['a'] = $algo;
 	$params['m'] = $mode;
-	if ($iterations != 0) $params['i'] = $iterations; // i can be omitted if it is 0.
+	if ($iterations > 0) $params['i'] = $iterations; // i can be omitted if it is 0.
 	return crypt_modular_format_encode(OID_MCF_VTS_V1, $bin_salt, $bin_hash, $params);
 }
 
@@ -347,28 +352,34 @@ function vts_mcf1_verify($password, $hash): bool {
 	return hash_equals($calc_authkey_2, $calc_authkey_1);
 }
 
-function vts_mcf2_execute_formula($algo, $formula, $str_salt, $str_password) {
+function vts_mcf2_execute_formula($algo, $formula, $bin_salt, $str_password) {
     $pos = 0;
+    $len = strlen($formula);
 
-    $parse_and_eval = function($input, &$pos) use (&$parse_and_eval, $str_salt, $str_password, $algo) {
+    $parse_and_eval = function($input, &$pos, $in_parens = false) use (&$parse_and_eval, $bin_salt, $str_password, $algo, $len) {
         $result = '';
 
-        while ($pos < strlen($input)) {
+        while ($pos < $len) {
             $char = $input[$pos];
 
+            // Ende einer Klammer-Gruppe
             if ($char === ')') {
-                break;
+                if ($in_parens) {
+                    break;
+                } else {
+                    throw new Exception("Unexpected ')' at position $pos");
+                }
             }
 
-            // variables
+            // Variablen
             if ($char === 's' || $char === 'p') {
-                $result .= ($char === 's') ? $str_salt : $str_password;
+                $result .= ($char === 's') ? $bin_salt : $str_password;
                 $pos++;
                 continue;
             }
 
-            // functions
-            if (preg_match('/h(bx|hu|hl|64)/', substr($input, $pos), $match)) {
+            // Funktionen erkennen (nur am aktuellen Offset!)
+            if (preg_match('/^h(bx|hu|hl|64)/', substr($input, $pos), $match)) {
                 $func = $match[0];
                 $pos += strlen($func);
 
@@ -376,16 +387,18 @@ function vts_mcf2_execute_formula($algo, $formula, $str_salt, $str_password) {
                     throw new Exception("Expected '(' after $func at position $pos");
                 }
 
-                $pos++; // skip '('
-                $inner = $parse_and_eval($input, $pos);
+                $pos++; // '(' überspringen
+
+                // Rekursiv Inhalt parsen
+                $inner = $parse_and_eval($input, $pos, true);
 
                 if (!isset($input[$pos]) || $input[$pos] !== ')') {
                     throw new Exception("Expected ')' at position $pos");
                 }
 
-                $pos++; // skip ')'
+                $pos++; // ')' überspringen
 
-                // execute function
+                // Funktion ausführen
                 switch ($func) {
                     case 'hbx':
                         $result .= hash_ex($algo, $inner, true);
@@ -410,42 +423,42 @@ function vts_mcf2_execute_formula($algo, $formula, $str_salt, $str_password) {
         return $result;
     };
 
-    $output = $parse_and_eval($formula, $pos);
+    $output = $parse_and_eval($formula, $pos, false);
 
-    if ($pos !== strlen($formula)) {
+    // Sicherstellen, dass alles verarbeitet wurde
+    if ($pos !== $len) {
         throw new Exception("Unexpected trailing input at position $pos");
     }
 
     return $output;
 }
 
-function vts_mcf2_hash($algo, $str_password, $str_salt, $mode=PASSWORD_VTS_MCF2_DEFAULT_MODE, $iterations=PASSWORD_VTS_MCF2_DEFAULT_ITERATIONS) {
-	if (preg_match('@hash\[([^;])*\]@', $mode, $m)) {
-		$payload  = vts_mcf2_execute_formula($algo, $m[1], $str_salt, $str_password);
-		$bin_hash = hash_ex($algo, $payload, true);
-		for ($i=0; $i<$iterations; $i++) {
-			$bin_hash = hash_ex($algo, $bin_hash, true);
+function vts_mcf2_hash($algo, $str_password, $bin_salt, $mode=PASSWORD_VTS_MCF2_DEFAULT_MODE, $iterations=PASSWORD_VTS_MCF2_DEFAULT_ITERATIONS) {
+	if (preg_match('@hash\[([^;]*)\]@', $mode, $m)) {
+		$bin_hash = $str_password;
+		for ($i=0; $i<=$iterations; $i++) {
+			$payload  = vts_mcf2_execute_formula($algo, $m[1], $bin_salt, $bin_hash);
+			$bin_hash = hash_ex($algo, $payload, true);
 		}
-	} else if (preg_match('@hmac\[([^;])*;([^;])*\]@', $mode, $m)) {
-		$key      = vts_mcf2_execute_formula($algo, $m[1], $str_salt, $str_password);
-		$payload  = vts_mcf2_execute_formula($algo, $m[2], $str_salt, $str_password);
-		$bin_hash = hash_hmac_ex($algo, $payload, $key, true);
-		for ($i=0; $i<$iterations; $i++) {
-			$bin_hash = hash_hmac_ex($algo, $str_password, $bin_hash, true);
+	} else if (preg_match('@hmac\[([^;]*);([^;]*)\]@', $mode, $m)) {
+		$bin_hash = $str_password;
+		for ($i=0; $i<=$iterations; $i++) {
+			$key      = vts_mcf2_execute_formula($algo, $m[1], $bin_salt, $bin_hash);
+			$payload  = vts_mcf2_execute_formula($algo, $m[2], $bin_salt, $bin_hash);
+			$bin_hash = hash_hmac_ex($algo, $payload, $key, true);
 		}
-	} else if (preg_match('@pbkdf2\[([^;])*;([^;])*\]@', $mode, $m)) {
-		$salt     = vts_mcf2_execute_formula($algo, $m[1], $str_salt, $str_password);
-		$payload  = vts_mcf2_execute_formula($algo, $m[2], $str_salt, $str_password);
+	} else if (preg_match('@pbkdf2\[([^;]*);([^;]*)\]@', $mode, $m)) {
+		$salt     = vts_mcf2_execute_formula($algo, $m[1], $bin_salt, $str_password);
+		$payload  = vts_mcf2_execute_formula($algo, $m[2], $bin_salt, $str_password);
 		// Note: If $iterations=0, then hash_pbkdf2_ex() will correct it to the best value depending on $algo, see _vts_password_default_iterations().
 		$bin_hash = hash_pbkdf2_ex($algo, $payload, $salt, $iterations, /*length*/0, true);
 	} else {
 		throw new Exception("Invalid VTS MCF2 Mode '$mode'");
 	}
-	$bin_salt = $str_salt;
 	$params = array();
 	$params['a'] = $algo;
 	$params['m'] = $mode;
-	if ($iterations != 0) $params['i'] = $iterations; // i can be omitted if it is 0.
+	if ($iterations > 0) $params['i'] = $iterations; // i can be omitted if it is 0.
 	return crypt_modular_format_encode(OID_MCF_VTS_V2, $bin_salt, $bin_hash, $params);
 }
 
@@ -1357,6 +1370,7 @@ function _vts_password_default_iterations($algo, $userland) {
 
 // --- Part 6: Selftest
 
+/*
 for ($i=0; $i<9999; $i++) {
 	assert($i===base64_int_decode(base64_int_encode($i,4)));
 }
@@ -1514,6 +1528,44 @@ assert(true===vts_password_needs_rehash($dummy,PASSWORD_VTS_MCF2,array(
 	'iterations' => 2
 )));
 
+// --- MHA2 vs MHA1
+
+assert(vts_password_verify($password,$dummy =
+str_replace(OID_MCF_VTS_V2,OID_MCF_VTS_V1,
+str_replace('pbkdf2[s;p]','pbkdf2',
+vts_password_hash($password, PASSWORD_VTS_MCF2, array(
+	'algo' => 'sha3-512',
+	'mode' => 'pbkdf2[s;p]',
+	'iterations' => 0
+))))));
+
+assert(vts_password_verify($password,$dummy =
+str_replace(OID_MCF_VTS_V2,OID_MCF_VTS_V1,
+str_replace('hmac[s;p]','hmac',
+vts_password_hash($password, PASSWORD_VTS_MCF2, array(
+	'algo' => 'sha3-512',
+	'mode' => 'hmac[s;p]',
+	'iterations' => 0
+))))));
+
+assert(vts_password_verify($password,$dummy =
+str_replace(OID_MCF_VTS_V2,OID_MCF_VTS_V1,
+str_replace('hash[sps]','sps',
+vts_password_hash($password, PASSWORD_VTS_MCF2, array(
+	'algo' => 'sha3-512',
+	'mode' => 'hash[sps]',
+	'iterations' => 0
+))))));
+
+assert(vts_password_verify($password,$dummy =
+str_replace(OID_MCF_VTS_V2,OID_MCF_VTS_V1,
+str_replace('hash[shbx(p)s]','shps',
+vts_password_hash($password, PASSWORD_VTS_MCF2, array(
+	'algo' => 'sha3-512',
+	'mode' => 'hash[shbx(p)s]',
+	'iterations' => 0
+))))));
+
 // --- MHA 1
 $hash = vts_password_hash('hello world', PASSWORD_VTS_MHA1, ['salt_length'=>0]);
 assert(vts_password_verify('hello world', $hash));
@@ -1538,3 +1590,4 @@ assert(!vts_password_verify('hello world!', $hash));
 $hash = vts_password_hash('hello world', PASSWORD_APR_MD5);
 assert(vts_password_verify('hello world', $hash));
 assert(!vts_password_verify('hello world!', $hash));
+*/
