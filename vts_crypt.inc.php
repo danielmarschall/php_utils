@@ -3,7 +3,7 @@
 /*
  * ViaThinkSoft Modular Crypt Format and vts_password_*() functions
  * Copyright 2023-2026 Daniel Marschall, ViaThinkSoft
- * Revision 2026-04-12
+ * Revision 2026-04-14
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -80,8 +80,8 @@ Algorithm identifiers such as $1$, $2$, ... are nice to remember and short, but
 can quickly lead to conflicts, and soon you run out of short identifiers.
 
 Format of VTS MCF1:
-	$1.3.6.1.4.1.37476.3.0.1.1$a=<algo>,m=<mode>[,i=<iterations>]$<salt>$<hash>
-where <algo> is:
+	$1.3.6.1.4.1.37476.3.0.1.1$a=<algo>[,ai=<algo-internal>],m=<mode>[,i=<iterations>]$<salt>$<hash>
+where <algo> and <algo-internal> are:
 	Any valid hash algorithm (name scheme of PHP hash_algos() preferred), e.g.
 		sha3-512
 		sha3-384
@@ -99,20 +99,21 @@ where <algo> is:
 		bcrypt [Standardized crypt identifier 2, 2a, 2b, 2x, 2y]
 		argon2i [Crypt identifier argon2i, not standardized]
 		argon2id [Crypt identifier argon2id, not standardized]
+ai=<algo-internal> is only required if m=<mode> uses the hash[] formula (see below) and can be omitted if it is equal to a=<algo>
 Valid <mode> for VTS MCF1:
 	The mode can be one of these:
 		sp     = salt + password                  Deprecated. Use instead: hash[sp],       it behaves equal if iterations i=0
 		ps     = password + salt                  Deprecated. Use instead: hash[ps],       it behaves equal if iterations i=0
 		sps    = salt + password + salt           Deprecated. Use instead: hash[sps],      it behaves equal if iterations i=0
-		shp    = salt + Hash(password)            Deprecated. Use instead: hash[shbx(p)],  it behaves equal if iterations i=0
-		hps    = Hash(password) + salt            Deprecated. Use instead: hash[hbx(p)s],  it behaves equal if iterations i=0
-		shps   = salt + Hash(password) + salt     Deprecated. Use instead: hash[shbx(p)s], it behaves equal if iterations i=0
+		shp    = salt + Hash(password)            Deprecated. Use instead: hash[shbx(p)],  it behaves equal if iterations i=0 and a=ai
+		hps    = Hash(password) + salt            Deprecated. Use instead: hash[hbx(p)s],  it behaves equal if iterations i=0 and a=ai
+		shps   = salt + Hash(password) + salt     Deprecated. Use instead: hash[shbx(p)s], it behaves equal if iterations i=0 and a=ai
 		hmac   = HMAC (salt is the key)           Deprecated. Use instead: hmac[s;p],      it behaves equal if iterations i=0
 		pbkdf2 = PBKDF2-HMAC                      Deprecated. Use instead: pbkdf2[s;p]
 		         (Additional param i= contains the number of iterations)
 		hmac[<formula for key>;<formula for payload>]
 		pbkdf2[<formula for salt>;<formula for payload>]
-		hash[<formula for payload>]
+		hash[<formula for payload>]               The algorithm for these nested hashes is <algo-internal> and not <algo>
 	whereas the formulas can be any custom formula with the following elements:
 		hbx(...) means hash binary
 		hhu(...) means hash hex upper
@@ -140,7 +141,6 @@ Reference implementation in PHP:
 TODO:
 - Implement more algorithms which are not implemented by PHP, e.g. $7$ scrypt, $y$ YESCRYPT, etc.
 - MCF 1.1 : Release new standard
-- MCF 1.1 : We could have a2, a3, etc. to have different algos for inner hashes in the formula
 
 */
 
@@ -170,6 +170,14 @@ define('PASSWORD_VTS_MHA3',  OID_MHA_VTS_V3);  // Algorithm by ViaThinkSoft (DEP
 // - PASSWORD_ARGON2I
 // - PASSWORD_ARGON2ID
 
+define('PASSWORD_EXT_DES_DEFAULT_ITERATIONS',   725);
+
+define('PASSWORD_BLOWFISH_DEFAULT_COST',        10);
+
+define('PASSWORD_SHA256_DEFAULT_ROUNDS',        5000);
+
+define('PASSWORD_SHA512_DEFAULT_ROUNDS',        5000);
+
 define('PASSWORD_VTS_MCF1_MODE_SP',             'sp');     // deprecated. Salt+Password
 define('PASSWORD_VTS_MCF1_MODE_PS',             'ps');     // deprecated. Password+Salt
 define('PASSWORD_VTS_MCF1_MODE_SPS',            'sps');    // deprecated. Salt+Password+Salt
@@ -178,12 +186,6 @@ define('PASSWORD_VTS_MCF1_MODE_HPS',            'hps');    // deprecated. Hash(P
 define('PASSWORD_VTS_MCF1_MODE_SHPS',           'shps');   // deprecated. Salt+Hash(Password)+Salt
 define('PASSWORD_VTS_MCF1_MODE_HMAC',           'hmac');   // deprecated. HMAC
 define('PASSWORD_VTS_MCF1_MODE_PBKDF2',         'pbkdf2'); // deprecated. PBKDF2-HMAC
-
-define('PASSWORD_EXT_DES_DEFAULT_ITERATIONS',   725);
-define('PASSWORD_BLOWFISH_DEFAULT_COST',        10);
-define('PASSWORD_SHA256_DEFAULT_ROUNDS',        5000);
-define('PASSWORD_SHA512_DEFAULT_ROUNDS',        5000);
-
 define('PASSWORD_VTS_MCF1_DEFAULT_ALGO',        'sha3-512'); // any value in hash_algos(), NOT vts_hash_algos()
 define('PASSWORD_VTS_MCF1_DEFAULT_MODE',        'hash[ps]');
 define('PASSWORD_VTS_MCF1_DEFAULT_ITERATIONS',  0); // For PBKDF2, iterations=0 means: Default, depending on the algo
@@ -341,23 +343,23 @@ function vts_mcf1_execute_formula($algo, $formula, $bin_salt, $str_password) {
     return $output;
 }
 
-function vts_mcf1_hash($algo, $str_password, $bin_salt, $mode=PASSWORD_VTS_MCF1_DEFAULT_MODE, $iterations=PASSWORD_VTS_MCF1_DEFAULT_ITERATIONS) {
+function vts_mcf1_hash($algo, $algo_internal, $str_password, $bin_salt, $mode=PASSWORD_VTS_MCF1_DEFAULT_MODE, $iterations=PASSWORD_VTS_MCF1_DEFAULT_ITERATIONS) {
 	if (preg_match('@hash\[([^;]*)\]@', $mode, $m)) {
 		$bin_hash = $str_password;
 		for ($i=0; $i<=$iterations; $i++) {
-			$payload  = vts_mcf1_execute_formula($algo, $m[1], $bin_salt, $bin_hash);
+			$payload  = vts_mcf1_execute_formula($algo_internal, $m[1], $bin_salt, $bin_hash);
 			$bin_hash = hash_ex($algo, $payload, true);
 		}
 	} else if (preg_match('@hmac\[([^;]*);([^;]*)\]@', $mode, $m)) {
 		$bin_hash = $str_password;
 		for ($i=0; $i<=$iterations; $i++) {
-			$key      = vts_mcf1_execute_formula($algo, $m[1], $bin_salt, $bin_hash);
-			$payload  = vts_mcf1_execute_formula($algo, $m[2], $bin_salt, $bin_hash);
+			$key      = vts_mcf1_execute_formula($algo_internal, $m[1], $bin_salt, $bin_hash);
+			$payload  = vts_mcf1_execute_formula($algo_internal, $m[2], $bin_salt, $bin_hash);
 			$bin_hash = hash_hmac_ex($algo, $payload, $key, true);
 		}
 	} else if (preg_match('@pbkdf2\[([^;]*);([^;]*)\]@', $mode, $m)) {
-		$salt     = vts_mcf1_execute_formula($algo, $m[1], $bin_salt, $str_password);
-		$payload  = vts_mcf1_execute_formula($algo, $m[2], $bin_salt, $str_password);
+		$salt     = vts_mcf1_execute_formula($algo_internal, $m[1], $bin_salt, $str_password);
+		$payload  = vts_mcf1_execute_formula($algo_internal, $m[2], $bin_salt, $str_password);
 		// Note: If $iterations=0, then hash_pbkdf2_ex() will correct it to the best value depending on $algo, see _vts_password_default_iterations().
 		$bin_hash = hash_pbkdf2_ex($algo, $payload, $salt, $iterations, /*length*/0, true);
 	} else if ($mode == PASSWORD_VTS_MCF1_MODE_SP) {
@@ -403,6 +405,7 @@ function vts_mcf1_hash($algo, $str_password, $bin_salt, $mode=PASSWORD_VTS_MCF1_
 	}
 	$params = array();
 	$params['a'] = $algo;
+	if ($algo_internal != $algo) $params['ai'] = $algo_internal;
 	$params['m'] = $mode;
 	if ($iterations > 0) $params['i'] = $iterations; // i can be omitted if it is 0.
 	return crypt_modular_format_encode(OID_MCF_VTS_V1, $bin_salt, $bin_hash, $params);
@@ -423,6 +426,7 @@ function vts_mcf1_verify($password, $hash): bool {
 
 	if (!isset($params['a'])) throw new Exception('Param "a" (algo) missing');
 	$algo = $params['a'];
+	$algo_internal = $params['ai'] ?? $params['a'];
 
 	if (!isset($params['m'])) throw new Exception('Param "m" (mode) missing');
 	$mode = $params['m'];
@@ -435,7 +439,7 @@ function vts_mcf1_verify($password, $hash): bool {
 	}
 
 	// Create a VTS MCF 1.0 hash based on the parameters of $hash and the password $password
-	$calc_authkey_1 = vts_mcf1_hash($algo, $password, $bin_salt, $mode, $iterations);
+	$calc_authkey_1 = vts_mcf1_hash($algo, $algo_internal, $password, $bin_salt, $mode, $iterations);
 
 	// We re-encode the MCF to make sure that it can be compared with the VTS MCF 1.0 (correct sorting of params etc.)
 	$calc_authkey_2 = crypt_modular_format_encode($id, $bin_salt, $bin_hash, $params);
@@ -712,6 +716,7 @@ function vts_password_get_info($hash) {
 
 		if (!isset($mcf['params']['a'])) throw new Exception('Param "a" (algo) missing');
 		$options['algo'] = $mcf['params']['a'];
+		$options['algo-internal'] = $mcf['params']['ai'] ?? $mcf['params']['a'];
 
 		if (!isset($mcf['params']['m'])) throw new Exception('Param "m" (mode) missing');
 		$options['mode'] = $mcf['params']['m'];
@@ -918,11 +923,12 @@ function vts_password_hash($password, $algo, $options=array()): string {
 	} else if ($algo === PASSWORD_VTS_MCF1) {
 		// Algorithms: PASSWORD_VTS_MCF1
 		$algo = $options['algo'];
+		$algo_internal = $options['algo-internal'] ?? $options['algo'];
 		$mode = $options['mode'];
 		$iterations = $options['iterations'];
 		$salt_len = isset($options['salt_length']) ? $options['salt_length'] : 32; // Note: salt_length is not an MCF option! It's just a hint for vts_password_hash()
 		$salt = random_bytes_ex($salt_len, true, true);
-		return vts_mcf1_hash($algo, $password, $salt, $mode, $iterations);
+		return vts_mcf1_hash($algo, $algo_internal, $password, $salt, $mode, $iterations);
 	} else if ($algo === PASSWORD_VTS_MHA1) {
 		// Algorithms: PASSWORD_VTS_MHA1
 		$base_algo = $options['algo'];
@@ -977,6 +983,10 @@ function vts_password_needs_rehash($hash, $algo, $options=array()) {
 	if ($algo !== $algo2) return true;
 
 	if (str_starts_with($hash, '$'.OID_MCF_VTS_V1.'$')) {
+
+		if (($options['algo-internal']??"") == $options['algo']) unset($options['algo-internal']);
+		if (($options2['algo-internal']??"") == $options2['algo']) unset($options2['algo-internal']);
+
 		if (isset($options['salt_length'])) {
 			// For VTS MCF 1.0, salt_length is a valid option for vts_password_hash(),
 			// but it is not a valid option inside the MCF options
@@ -987,6 +997,7 @@ function vts_password_needs_rehash($hash, $algo, $options=array()) {
 		// For PBKDF2, iterations=0 means: Default, depending on the algo
 		if (($options['iterations'] == 0/*default*/) && str_starts_with($options2['mode'], 'pbkdf2')) {
 			$algo = $options2['algo'];
+			//$algo_internal = $options2['algo-internal'] ?? $options2['algo'];
 			$userland = !hash_pbkdf2_supported_natively($algo) && str_starts_with($algo, 'sha3-') && method_exists('\bb\Sha3\Sha3', 'hash_pbkdf2');
 			$options['iterations'] = _vts_password_default_iterations($algo, $userland);
 		}
@@ -1556,4 +1567,3 @@ $hash = vts_password_hash('hello world', PASSWORD_APR_MD5);
 assert(vts_password_verify('hello world', $hash));
 assert(!vts_password_verify('hello world!', $hash));
 */
-
