@@ -3,7 +3,7 @@
 /*
  * ViaThinkSoft Modular Crypt Format and vts_password_*() functions
  * Copyright 2023-2026 Daniel Marschall, ViaThinkSoft
- * Revision 2026-04-14
+ * Revision 2026-04-20
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,14 +66,12 @@ $argon2id$...                              = Argon2id
 About ViaThinkSoft Modular Crypt Format (VTS MCF)
 =================================================
 
-ViaThinkSoft Modular Crypt Format performs a simple hash, HMAC, or PBKDF operation.
-No key derivation function or iterations are performed.
+ViaThinkSoft MCF 1.x was created to allow old passwords (e.g. MD5 with salt) to be easily converted
+to a MCF notation ($...$...$) so that these old passwords can be stored in the same data structure
+as newer crypt passwords, until they get upgraded to a newer hash.
 
-ViaThinkSoft MCF was created to allow old passwords (e.g. MD5 with salt) can be easily converted
-to a MCF notation ($...$...$) so that these old passwords can be stored
-in the same data structure as newer crypt passwords, until they get upgraded to a newer
-hash. But it can also be used to encapsulate modern hash algorithms like SHA3/512 into
-a MCF format, so that they can be stored together with other MCF passwords such as bcrypt.
+It can also be used to encapsulate modern hash algorithms like SHA3/512 into a MCF format,
+so that they can be stored together with other MCF hashes such as bcrypt.
 
 Another innovation is to use Object Identifiers (OIDs) as MCF algorithm identifier.
 Algorithm identifiers such as $1$, $2$, ... are nice to remember and short, but
@@ -110,7 +108,7 @@ Valid <mode> for VTS MCF1:
 		shps   = salt + Hash(password) + salt     Deprecated. Use instead: hash[shbx(p)s], it behaves equal if iterations i=0 and a=ai
 		hmac   = HMAC (salt is the key)           Deprecated. Use instead: hmac[s;p],      it behaves equal if iterations i=0
 		pbkdf2 = PBKDF2-HMAC                      Deprecated. Use instead: pbkdf2[s;p]
-		         (Additional param i= contains the number of iterations)
+		         (Additional param "i" contains the number of iterations)
 		hmac[<formula for key>;<formula for payload>]
 		pbkdf2[<formula for salt>;<formula for payload>]
 		hash[<formula for payload>]               The algorithm for these nested hashes is <algo-internal> and not <algo>
@@ -126,7 +124,7 @@ Valid <mode> for VTS MCF1:
 Regarding <iterations>:
 	The parameter "i" can be omitted if 0.
 	It is required for mode=pbkdf2 and mode=pbkdf2[...]
-	For sp/ps/sps/shp/hps/shps/hmac, it is optional, and implemented as follows:
+	For other modes it is optional, and implemented as follows:
 	- For VTS MCF 1.0 (sp,ps,sps,shp,hps,shps,hmac):
 	  It repeats the hash/hmac operation with the password being replaced with the previous hash output concatenated with the iteration number starting with 0.
 	- For VTS MCF 1.1 (hash[...], hmac[...], pbkdf2[...]):
@@ -137,10 +135,10 @@ Link to the online specification:
 Reference implementation in PHP:
 	https://github.com/danielmarschall/php_utils/blob/master/vts_crypt.inc.php
 
+---
 
 TODO:
 - Implement more algorithms which are not implemented by PHP, e.g. $7$ scrypt, $y$ YESCRYPT, etc.
-- MCF 1.1 : Release new standard
 
 */
 
