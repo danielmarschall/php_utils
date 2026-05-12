@@ -270,7 +270,7 @@ function vts_mcf1_execute_formula($algo, $formula, $bin_salt, $str_password) {
         while ($pos < $len) {
             $char = $input[$pos];
 
-            // Ende einer Klammer-Gruppe
+            // Ende of a bracket group
             if ($char === ')') {
                 if ($in_parens) {
                     break;
@@ -279,14 +279,14 @@ function vts_mcf1_execute_formula($algo, $formula, $bin_salt, $str_password) {
                 }
             }
 
-            // Variablen
+            // Variables
             if ($char === 's' || $char === 'p') {
                 $result .= ($char === 's') ? $bin_salt : $str_password;
                 $pos++;
                 continue;
             }
 
-            // Funktionen erkennen (nur am aktuellen Offset!)
+            // Detect method (only at the current offset!)
             if (preg_match('/^h(bx|hu|hl|64)/', substr($input, $pos), $match)) {
                 $func = $match[0];
                 $pos += strlen($func);
@@ -295,18 +295,18 @@ function vts_mcf1_execute_formula($algo, $formula, $bin_salt, $str_password) {
                     throw new Exception("Expected '(' after $func at position $pos");
                 }
 
-                $pos++; // '(' überspringen
+                $pos++; // skip '('
 
-                // Rekursiv Inhalt parsen
+                // Parse contents recursively
                 $inner = $parse_and_eval($input, $pos, true);
 
                 if (!isset($input[$pos]) || $input[$pos] !== ')') {
                     throw new Exception("Expected ')' at position $pos");
                 }
 
-                $pos++; // ')' überspringen
+                $pos++; // skip ')'
 
-                // Funktion ausführen
+                // Call method
                 switch ($func) {
                     case 'hbx':
                         $result .= hash_ex($algo, $inner, true);
@@ -333,7 +333,7 @@ function vts_mcf1_execute_formula($algo, $formula, $bin_salt, $str_password) {
 
     $output = $parse_and_eval($formula, $pos, false);
 
-    // Sicherstellen, dass alles verarbeitet wurde
+    // Verify that everything was processed
     if ($pos !== $len) {
         throw new Exception("Unexpected trailing input at position $pos");
     }

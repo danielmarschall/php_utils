@@ -18,9 +18,7 @@
  * limitations under the License.
  */
 
-# define('OPENSSL_EXEC', 'openssl');
-# define('OPENSSL_EXEC', 'torify openssl');
-define('OPENSSL_EXEC', 'vtor -cr 1 -- openssl');
+define('OPENSSL_EXEC', 'openssl');
 
 # ToDo: For every function 2 modes: certFile, certPEM
 
