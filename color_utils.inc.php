@@ -2,8 +2,8 @@
 
 /*
  * Color Utils for PHP
- * Copyright 2019 - 2023 Daniel Marschall, ViaThinkSoft
- * Revision 2023-08-29
+ * Copyright 2019 - 2026 Daniel Marschall, ViaThinkSoft
+ * Revision 2026-07-15
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -172,11 +172,23 @@ function changeHueOfCSS($css_content, $h_shift=0, $s_shift=0, $v_shift=0) {
 	return changeCSSWithRgbFunction($css_content, $rgb_function);
 }
 
+function swapColorScheme(string $css_content): string {
+	return preg_replace_callback(
+		'/color-scheme\s*:\s*(dark|light)\s*;/i',
+		function ($matches) {
+			return 'color-scheme: ' .
+				(strtolower($matches[1]) === 'dark' ? 'light' : 'dark') .
+				';';
+		},
+		$css_content
+	);
+}
+
 function invertColorsOfCSS($css_content) {
 	$rgb_function = function(&$r,&$g,&$b) {
 		$r = 255 - $r;
 		$g = 255 - $g;
 		$b = 255 - $b;
 	};
-	return changeCSSWithRgbFunction($css_content, $rgb_function);
+	return swapColorScheme(changeCSSWithRgbFunction($css_content, $rgb_function));
 }
